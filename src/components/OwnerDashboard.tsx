@@ -1,0 +1,547 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React from 'react';
+import { 
+  BarChart3, 
+  Settings, 
+  Users, 
+  Trash2, 
+  Plus, 
+  CheckCircle, 
+  DollarSign, 
+  ShoppingBag, 
+  Tag, 
+  AlertCircle,
+  Hash,
+  Activity
+} from 'lucide-react';
+import { laundryService } from '../firebase';
+import { Laundry, LaundryService as ServiceModel, UserProfile, LaundryOrder } from '../types';
+
+interface OwnerDashboardProps {
+  currentLaundryId: string;
+}
+
+export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps) {
+  const [activeTab, setActiveTab] = React.useState<'summary' | 'services' | 'staff' | 'orders'>('summary');
+  
+  // Data States
+  const [laundry, setLaundry] = React.useState<Laundry | null>(null);
+  const [services, setServices] = React.useState<ServiceModel[]>([]);
+  const [staff, setStaff] = React.useState<UserProfile[]>([]);
+  const [orders, setOrders] = React.useState<LaundryOrder[]>([]);
+
+  // Action Form States
+  const [newServiceName, setNewServiceName] = React.useState('');
+  const [newServicePrice, setNewServicePrice] = React.useState<number>(0);
+  const [newServiceUnit, setNewServiceUnit] = React.useState<'kg' | 'pcs'>('kg');
+  const [newServiceDays, setNewServiceDays] = React.useState<number>(3);
+
+  // Staff Form States
+  const [staffName, setStaffName] = React.useState('');
+  const [staffUsername, setStaffUsername] = React.useState('');
+  const [staffRole, setStaffRole] = React.useState<'cashier' | 'employee'>('employee');
+  const [staffError, setStaffError] = React.useState('');
+
+  const loadAllData = () => {
+    // 1. Load laundry information
+    const laundries = laundryService.getLaundries();
+    const lnd = laundries.find(item => item.laundryId === currentLaundryId);
+    if (lnd) setLaundry(lnd);
+
+    // 2. Load services
+    setServices(laundryService.getServices(currentLaundryId));
+
+    // 3. Load staff
+    setStaff(laundryService.getLaundryStaff(currentLaundryId));
+
+    // 4. Load orders
+    setOrders(laundryService.getOrders(currentLaundryId));
+  };
+
+  React.useEffect(() => {
+    loadAllData();
+  }, [currentLaundryId]);
+
+  // Handle adding a laundry service
+  const handleAddService = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newServiceName.trim() || newServicePrice <= 0) return;
+
+    laundryService.addService({
+      laundryId: currentLaundryId,
+      name: newServiceName,
+      price: Number(newServicePrice),
+      unit: newServiceUnit,
+      estimateDays: Number(newServiceDays)
+    });
+
+    // Reset Form
+    setNewServiceName('');
+    setNewServicePrice(0);
+    setNewServiceUnit('kg');
+    setNewServiceDays(3);
+
+    // Reload layanans
+    loadAllData();
+  };
+
+  const handleDeleteService = (serviceId: string) => {
+    laundryService.deleteService(serviceId);
+    loadAllData();
+  };
+
+  // Handle adding staff accounts (strictly enforce exactly 1 cashier maximum)
+  const handleAddStaffAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    setStaffError('');
+
+    if (!staffName.trim() || !staffUsername.trim()) {
+      setStaffError('Lengkapi nama dan username karyawan.');
+      return;
+    }
+
+    // Validation rule: Owner ONLY allowed of strictly 1 Cashier account maximum!
+    if (staffRole === 'cashier') {
+      const existingCashiers = staff.filter(s => s.role === 'cashier');
+      if (existingCashiers.length >= 1) {
+        setStaffError('Sesuai aturan keamanan, Outlet Anda dibatasi maksimal hanya boleh memiliki 1 akun KASIR.');
+        return;
+      }
+    }
+
+    // Check duplicate username
+    const allUsers = laundryService.getLaundryStaff(currentLaundryId);
+    if (allUsers.some(u => u.username?.toLowerCase() === staffUsername.trim().toLowerCase())) {
+      setStaffError(`Username "${staffUsername}" telah digunakan karyawan lain.`);
+      return;
+    }
+
+    laundryService.createStaffAccount(currentLaundryId, staffName, staffUsername.toLowerCase(), staffRole);
+    
+    // Clear Form
+    setStaffName('');
+    setStaffUsername('');
+    setStaffRole('employee');
+
+    loadAllData();
+  };
+
+  const handleDeleteStaff = (userId: string) => {
+    laundryService.deleteStaffAccount(userId);
+    loadAllData();
+  };
+
+  // Calculation of Stats
+  const revenueTotal = orders
+    .filter(o => o.paymentStatus === 'paid')
+    .reduce((sum, o) => sum + o.totalPrice, 0);
+
+  const activeOrdersCount = orders.filter(o => o.laundryStatus !== 'diambil' && o.laundryStatus !== 'selesai').length;
+  const completedOrdersCount = orders.filter(o => o.laundryStatus === 'selesai' || o.laundryStatus === 'diambil').length;
+
+  const formatRupiah = (num: number) => {
+    return 'Rp ' + num.toLocaleString('id-ID');
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      
+      {/* HEADER BAR */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-5 gap-4">
+        <div>
+          <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">{laundry?.name || 'Laundry Milik Saya'}</span>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Owner Laundry Dashboard</h1>
+        </div>
+        <div className="flex items-center gap-2 border bg-slate-50 border-slate-200 px-3 py-1.5 rounded-xl text-slate-500 text-xs">
+          <Activity className="w-4 h-4 text-emerald-500" />
+          {laundry?.address}
+        </div>
+      </div>
+
+      {/* TABS SELECTOR */}
+      <div className="flex border-b border-slate-200 overflow-x-auto gap-1">
+        <button 
+          onClick={() => setActiveTab('summary')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'summary' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Ringkasan Laporan
+        </button>
+        <button 
+          onClick={() => setActiveTab('orders')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'orders' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ShoppingBag className="w-4 h-4" />
+          Semua Cucian ({orders.length})
+        </button>
+        <button 
+          onClick={() => setActiveTab('services')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'services' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Tag className="w-4 h-4" />
+          Atur Harga Layanan
+        </button>
+        <button 
+          onClick={() => setActiveTab('staff')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'staff' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Kelola Akses Karyawan
+        </button>
+      </div>
+
+      {/* SUMMARY PANEL */}
+      {activeTab === 'summary' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1">Pendapatan Bersih (Lunas)</span>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-black text-emerald-600">{formatRupiah(revenueTotal)}</span>
+                <span className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><DollarSign className="w-5 h-5" /></span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1">Pesanan Sedang Diproses</span>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-black text-blue-600">{activeOrdersCount} Order</span>
+                <span className="p-3 bg-blue-50 text-blue-600 rounded-xl"><ShoppingBag className="w-5 h-5" /></span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-1">Selesai / Diambil</span>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-black text-slate-600">{completedOrdersCount} Order</span>
+                <span className="p-3 bg-slate-50 text-slate-600 rounded-xl"><CheckCircle className="w-5 h-5" /></span>
+              </div>
+            </div>
+          </div>
+
+          {/* INCOME GRAPH SIMULATOR USING HIGHLY POLISHED SVGs */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-800 mb-6 flex items-center gap-1.5 uppercase tracking-wide">
+              <Settings className="w-4 h-4 text-blue-500" />
+              Statistik Berat Cucian Masuk (Kg) 7 Hari Terakhir
+            </h3>
+            
+            <div className="h-56 w-full flex items-end justify-between gap-2 pt-6 pb-2 border-b border-indigo-50/50">
+              {[
+                { d: 'Senin', kg: 14 },
+                { d: 'Selasa', kg: 24 },
+                { d: 'Rabu', kg: 19 },
+                { d: 'Kamis', kg: 35 },
+                { d: 'Jumat', kg: 42 },
+                { d: 'Sabtu', kg: 55 },
+                { d: 'Minggu', kg: 48 }
+              ].map((item, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center h-full justify-end">
+                  <span className="text-[10px] font-mono text-blue-600 font-bold mb-1">{item.kg}kg</span>
+                  <div 
+                    className="w-full max-w-[40px] bg-gradient-to-t from-blue-500/80 to-blue-500 rounded-t-lg transition-all duration-1000 ease-out"
+                    style={{ height: `${(item.kg / 60) * 100}%` }}
+                  />
+                  <span className="text-xs text-slate-400 font-medium mt-2">{item.d}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANAGE SERVICES PANEL */}
+      {activeTab === 'services' && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          
+          <div className="lg:col-span-3 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100">
+              <h3 className="font-bold text-slate-800">Daftar Jasa Laundry</h3>
+              <p className="text-xs text-slate-400 mt-1">Daftar harga yang dipasang dan tampil pada form kasir.</p>
+            </div>
+            
+            <div className="divide-y divide-slate-100">
+              {services.map(srv => (
+                <div key={srv.serviceId} className="p-5 flex items-center justify-between hover:bg-slate-50 transition">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">{srv.name}</h4>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      {formatRupiah(srv.price)} / {srv.unit} • Estimasi {srv.estimateDays} Hari Selesai
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => handleDeleteService(srv.serviceId)}
+                    className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition"
+                    title="Hapus Layanan"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+
+              {services.length === 0 && (
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  Belum ada jenis layanan. Tambahkan baru di form samping Anda.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 bg-white border border-slate-100 rounded-2xl shadow-sm p-6 h-fit">
+            <h3 className="font-bold text-slate-800 text-sm mb-4">Buat Layanan Baru</h3>
+            <form onSubmit={handleAddService} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Nama Layanan</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: Cuci Karpet Tebal"
+                  value={newServiceName}
+                  onChange={(e) => setNewServiceName(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Harga (Rupiah)</label>
+                  <input 
+                    type="number"
+                    placeholder="Harga"
+                    value={newServicePrice || ''}
+                    onChange={(e) => setNewServicePrice(Number(e.target.value))}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Satuan Tarif</label>
+                  <select 
+                    value={newServiceUnit}
+                    onChange={(e) => setNewServiceUnit(e.target.value as 'kg' | 'pcs')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+                  >
+                    <option value="kg">Per Kilo (Kg)</option>
+                    <option value="pcs">Per Buah (Pcs)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Hari Kerja Estimasi</label>
+                <input 
+                  type="number"
+                  placeholder="Contoh: 3"
+                  value={newServiceDays || ''}
+                  onChange={(e) => setNewServiceDays(Number(e.target.value))}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-1 mt-2"
+              >
+                <Plus className="w-4 h-4" />
+                Tambah Layanan
+              </button>
+            </form>
+          </div>
+
+        </div>
+      )}
+
+      {/* MANAGE STAFF PANEL */}
+      {activeTab === 'staff' && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          
+          <div className="lg:col-span-3 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100">
+              <h3 className="font-bold text-slate-800">Dua-Role Staff Kerja</h3>
+              <p className="text-xs text-slate-400 mt-1">Daftar akun internal yang dapat login langsung sebagai Kasir atau Pegawai.</p>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {staff.map(member => (
+                <div key={member.userId} className="p-5 flex items-center justify-between hover:bg-slate-50 transition">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
+                    <p className="text-xs text-slate-400 mt-0.5">Username: <span className="font-mono bg-slate-100 text-slate-700 px-1 py-0.5 rounded text-[10px] font-bold">{member.username}</span></p>
+                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] border mt-2 font-bold uppercase tracking-wider ${
+                      member.role === 'cashier' 
+                        ? 'bg-blue-50 text-blue-800 border-blue-150' 
+                        : 'bg-indigo-50 text-indigo-850 border-indigo-150'
+                    }`}>
+                      {member.role === 'cashier' ? 'Kasir (Utama)' : 'Pegawai Cuci/Setrika'}
+                    </span>
+                  </div>
+                  
+                  <button 
+                    onClick={() => handleDeleteStaff(member.userId)}
+                    className="p-2 text-rose-500 hover:bg-rose-50 text-rose-700 rounded-lg transition"
+                    title="Batalkan Akses"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+
+              {staff.length === 0 && (
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  Belum ada karyawan terdaftar. Silakan buat akun Kasir dan Pegawai untuk mengelola cucian.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm h-fit">
+            <h3 className="font-bold text-slate-800 text-sm mb-4">Buat Akun Karyawan Baru</h3>
+            
+            {staffError && (
+              <div className="p-3.5 bg-rose-50 text-rose-800 border border-rose-100 rounded-xl text-xs font-semibold mb-4 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
+                <span>{staffError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddStaffAccount} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: Siti Rahma"
+                  value={staffName}
+                  onChange={(e) => setStaffName(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Username Login Internal</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: kasir01"
+                  value={staffUsername}
+                  onChange={(e) => setStaffUsername(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Gunakan huruf kecil & angka saja, tanpa spasi. Karyawan akan login memakai nama ini.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Pilih Jabatan (Role)</label>
+                <select 
+                  value={staffRole}
+                  onChange={(e) => setStaffRole(e.target.value as 'cashier' | 'employee')}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+                >
+                  <option value="employee">Pegawai Laundry (Update Progres)</option>
+                  <option value="cashier">Kasir Laundry (Input Order & Bayar)</option>
+                </select>
+                {staffRole === 'cashier' && (
+                  <p className="text-[10px] text-amber-600 font-semibold mt-1">Peringatan: Maksimal 1 akun Kasir diperbolehkan untuk kelola transaksi.</p>
+                )}
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 rounded-xl transition text-sm flex items-center justify-center gap-1 mt-2 shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Daftarkan Akses Karyawan
+              </button>
+            </form>
+          </div>
+
+        </div>
+      )}
+
+      {/* MANAGE ORDERS TAB */}
+      {activeTab === 'orders' && (
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-slate-800">Semua Histori Cucian Pelanggan</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Daftar transaksi laundry beserta detail progress terkini.</p>
+            </div>
+            <span className="text-xs font-semibold px-2 py-1 bg-blue-50 text-blue-700 rounded-md">Total: {orders.length} Log</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-slate-700 text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                  <th className="py-3 px-5">Nota / Invoice</th>
+                  <th className="py-3 px-5">Pelanggan</th>
+                  <th className="py-3 px-5">Layanan</th>
+                  <th className="py-3 px-5">Bobot</th>
+                  <th className="py-3 px-5">Total Harga</th>
+                  <th className="py-3 px-5">Status Layanan</th>
+                  <th className="py-3 px-5">Status Bayar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {orders.map(order => (
+                  <tr key={order.orderId} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-3.5 px-5 font-mono font-bold text-slate-800">{order.invoiceNo}</td>
+                    <td className="py-3.5 px-5">
+                      <p className="font-semibold text-slate-800">{order.customerName}</p>
+                      <p className="text-xs text-slate-400">{order.customerPhone}</p>
+                    </td>
+                    <td className="py-3.5 px-5 font-medium">{order.serviceName}</td>
+                    <td className="py-3.5 px-5 font-semibold text-slate-600">{order.weight} {order.unit}</td>
+                    <td className="py-3.5 px-5 font-bold text-slate-800">{formatRupiah(order.totalPrice)}</td>
+                    <td className="py-3.5 px-5">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        order.laundryStatus === 'selesai' || order.laundryStatus === 'diambil' ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'bg-amber-50 text-amber-800 border border-amber-100'
+                      }`}>
+                        {order.laundryStatus}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-5">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        order.paymentStatus === 'paid' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                      }`}>
+                        {order.paymentStatus === 'paid' ? 'LUNAS' : 'BELUM'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
+                {orders.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 px-5 text-center text-slate-400 text-sm">Belum ada transaksi di laundry ini.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

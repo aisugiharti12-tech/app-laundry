@@ -689,9 +689,26 @@ export const laundryService = {
     return getLaundriesLocal();
   },
 
-  updateLaundryStatus: (laundryId: string, isActive: boolean) => {
-    const laundryDoc = doc(libDb, 'laundries', laundryId);
-    updateDoc(laundryDoc, { isActive }).catch(e => handleFirestoreError(e, OperationType.UPDATE, laundryDoc.path));
+  updateLaundryStatus: async (laundryId: string, isActive: boolean): Promise<void> => {
+    const cached = cache_laundries.map(lnd => {
+      if (lnd.laundryId === laundryId) {
+        return { ...lnd, isActive };
+      }
+      return lnd;
+    });
+    cache_laundries = cached;
+    localStorage.setItem('lnd_laundries', JSON.stringify(cached));
+
+    if (useRealFirebase) {
+      try {
+        const laundryDoc = doc(libDb, 'laundries', laundryId);
+        await updateDoc(laundryDoc, { isActive });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `laundries/${laundryId}`);
+        throw e;
+      }
+    }
+    notifyStateChange();
   },
 
   updateLaundryDetails: async (laundryId: string, name: string, address: string, phone: string): Promise<void> => {

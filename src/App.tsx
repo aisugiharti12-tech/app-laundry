@@ -94,6 +94,45 @@ export default function App() {
   }, [currentTab]);
 
   // Context-aware secure listener synchronization hook
+  const [listVersion, setListVersion] = React.useState(0);
+
+  React.useEffect(() => {
+    const unsubscribe = laundryService.subscribeToChanges(() => {
+      setListVersion(v => v + 1);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Compute active laundry & user suspension status dynamically
+  const suspensionStatus = React.useMemo(() => {
+    if (!currentUser) return { suspended: false, name: '', reason: '' };
+    if (currentUser.role === 'super_admin') return { suspended: false, name: '', reason: '' };
+
+    // Check if user account itself is suspended
+    if (currentUser.isActive === false) {
+      return { 
+        suspended: true, 
+        name: currentUser.name, 
+        reason: 'Akun personal Anda telah dinonaktifkan sementara oleh Super Administrator platform Londria Hub.' 
+      };
+    }
+
+    // Check if user's laundry outlet is suspended
+    if (currentUser.laundryId) {
+      const laundryList = laundryService.getLaundries();
+      const myLaundry = laundryList.find(l => l.laundryId === currentUser.laundryId);
+      if (myLaundry && !myLaundry.isActive) {
+        return { 
+          suspended: true, 
+          name: myLaundry.name, 
+          reason: `Outlet laundry "${myLaundry.name}" telah ditangguhkan sementara oleh administrator platform Hub Laundry.` 
+        };
+      }
+    }
+
+    return { suspended: false, name: '', reason: '' };
+  }, [currentUser, listVersion]);
+
   React.useEffect(() => {
     if (currentUser) {
       startFirebaseSync(currentUser);
@@ -528,16 +567,73 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Dashboard Router switch */}
-                {currentUser.role === 'super_admin' && <SuperAdminDashboard />}
-                {currentUser.role === 'owner' && <OwnerDashboard currentLaundryId={currentUser.laundryId || ''} />}
-                {currentUser.role === 'cashier' && <CashierDashboard currentLaundryId={currentUser.laundryId || ''} cashierId={currentUser.userId} />}
-                {currentUser.role === 'employee' && (
-                  <EmployeeDashboard 
-                    currentLaundryId={currentUser.laundryId || ''} 
-                    employeeId={currentUser.userId} 
-                    employeeName={currentUser.name} 
-                  />
+                {/* Dashboard Router switch with secure suspension safety lock */}
+                {suspensionStatus.suspended ? (
+                  <div className="bg-white border-2 border-rose-100 rounded-3xl p-8 shadow-md flex flex-col items-center text-center space-y-6 max-w-lg mx-auto my-6 animate-fade-in">
+                    <div className="bg-rose-50 text-rose-600 p-4 rounded-full border border-rose-200">
+                      <ShieldAlert className="w-12 h-12" />
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-[10px] bg-rose-100 text-rose-800 px-3 py-1 rounded-full uppercase font-black tracking-widest border border-rose-200">
+                        Akses Ditangguhkan / Suspended
+                      </span>
+                      <h3 className="text-xl font-black text-slate-800 font-sans tracking-tight">
+                        {suspensionStatus.name} Nonaktif
+                      </h3>
+                      <p className="text-sm text-slate-550 leading-relaxed max-w-md pt-2">
+                        {suspensionStatus.reason}
+                      </p>
+                    </div>
+
+                    <div className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-left space-y-3">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Dampak Penonaktifan:</p>
+                      <ul className="text-xs text-slate-650 space-y-2">
+                        <li className="flex items-start gap-2">
+                          <span className="text-rose-500 font-bold">&bull;</span>
+                          <span>Seluruh pencatatan transaksi kasir, input pakaian masuk, dan timbangan laundry dihentikan sementara.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-rose-500 font-bold">&bull;</span>
+                          <span>Halaman kelola staff, pengaturan bonus, dan edit layanan outlet dikunci total.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-rose-500 font-bold">&bull;</span>
+                          <span>Pelacakan nota invoice bagi pelanggan tetap dapat diakses dengan catatan produksi dibekukan.</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="p-3 bg-blue-50/55 text-blue-805 border border-blue-100 rounded-xl text-xs font-semibold leading-relaxed w-full">
+                      ✉️ Hubungi Dukungan:<br/>
+                      Kirim surel keluhan resmi ke Super Admin platform di:<br/>
+                      <a 
+                        href="mailto:aisugiharti12@admin.smp.belajar.id" 
+                        className="underline text-blue-600 font-black hover:text-blue-700 select-all"
+                      >
+                        aisugiharti12@admin.smp.belajar.id
+                      </a>
+                    </div>
+
+                    <button 
+                      onClick={handleLogout}
+                      className="text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-2.5 rounded-xl border border-slate-200 transition cursor-pointer"
+                    >
+                      Kembali ke Halaman Login Utama
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {currentUser.role === 'super_admin' && <SuperAdminDashboard />}
+                    {currentUser.role === 'owner' && <OwnerDashboard currentLaundryId={currentUser.laundryId || ''} />}
+                    {currentUser.role === 'cashier' && <CashierDashboard currentLaundryId={currentUser.laundryId || ''} cashierId={currentUser.userId} />}
+                    {currentUser.role === 'employee' && (
+                      <EmployeeDashboard 
+                        currentLaundryId={currentUser.laundryId || ''} 
+                        employeeId={currentUser.userId} 
+                        employeeName={currentUser.name} 
+                      />
+                    )}
+                  </>
                 )}
 
               </div>

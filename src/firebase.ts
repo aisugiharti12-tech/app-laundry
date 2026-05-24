@@ -489,6 +489,71 @@ export const laundryService = {
     }
   },
 
+  loginGoogleReal: async (): Promise<UserProfile> => {
+    try {
+      const result = await signInWithPopup(libAuth, googleProvider);
+      const email = result.user.email;
+      if (!email) {
+        throw new Error("Gagal mengambil email dari akun Google.");
+      }
+      
+      const emailLower = email.toLowerCase();
+      const users = getUsersLocal();
+      let user = users.find(u => u.email === emailLower);
+      
+      if (!user) {
+        // Create user profile in Firestore
+        const newOwnerId = result.user.uid || `owner_${Date.now()}`;
+        const newLaundryId = `laundry_${Date.now()}`;
+        
+        const newLaundry: Laundry = {
+          laundryId: newLaundryId,
+          name: 'Laundry Saya',
+          address: 'Alamat Laundry Belum Diisi',
+          phone: '08123456789',
+          ownerId: newOwnerId,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        };
+
+        const defaultService: LaundryService = {
+          serviceId: `srv_${Date.now()}_1`,
+          laundryId: newLaundryId,
+          name: 'Cuci Setrika Kiloan (Reguler 3 Hari)',
+          price: 6000,
+          unit: 'kg',
+          estimateDays: 3,
+          createdAt: new Date().toISOString()
+        };
+
+        user = {
+          userId: newOwnerId,
+          email: emailLower,
+          name: result.user.displayName || email.split('@')[0],
+          role: emailLower === 'aisugiharti12@admin.smp.belajar.id' ? 'super_admin' : 'owner',
+          laundryId: newLaundryId,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        };
+
+        // Write to Firestore immediately
+        const userDoc = doc(libDb, 'users', newOwnerId);
+        const laundryDoc = doc(libDb, 'laundries', newLaundryId);
+        const srvDoc = doc(libDb, 'laundries', newLaundryId, 'services', defaultService.serviceId);
+
+        await setDoc(userDoc, user);
+        await setDoc(laundryDoc, newLaundry);
+        await setDoc(srvDoc, defaultService);
+      }
+
+      laundryService.setSimulatedUser(user);
+      return user;
+    } catch (error) {
+      console.error("Firebase Login Real Auth failed:", error);
+      throw error;
+    }
+  },
+
   loginGoogleSimulated: (email: string): UserProfile => {
     // Try to find if user profile exists in custom users list first
     const users = getUsersLocal();

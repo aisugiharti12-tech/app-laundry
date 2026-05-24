@@ -21,7 +21,8 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || "ai-studio-a4cd3d2f-87e7-48d5-ae10-c44bf4e1ce72";
+const db = getFirestore(app, databaseId);
 const googleProvider = new GoogleAuthProvider();
 
 // Setting flag to true to indicate the availability/intent of real Firebase mode

@@ -69,6 +69,18 @@ export default function App() {
     };
   }, [currentUser]);
 
+  const handleGoogleLoginReal = async () => {
+    setLoginError('');
+    try {
+      const profile = await laundryService.loginGoogleReal();
+      setCurrentUser(profile);
+      setCurrentTab('dashboard');
+    } catch (e: any) {
+      console.warn("Real Google Auth failed or closed:", e);
+      setLoginError(e.message || 'Gagal masuk dengan Google. Pastikan domain popup telah diizinkan di Firebase Console > Authentication.');
+    }
+  };
+
   const handleGoogleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -251,7 +263,7 @@ export default function App() {
                     onClick={() => setCurrentTab('dashboard')}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm px-6 py-3.5 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center gap-1.5"
                   >
-                    Masuk Ke Simulator
+                    Masuk / Hubungkan Google Auth & Karyawan
                     <ChevronRight className="w-4 h-4" />
                   </button>
                   <button 
@@ -266,7 +278,10 @@ export default function App() {
 
               {/* FLOATING ROLES CARD PREVIEW */}
               <div className="bg-gradient-to-tr from-slate-900 to-slate-950 text-white rounded-3xl p-8 border border-slate-800 shadow-2xl relative overflow-hidden">
-                <h3 className="font-extrabold text-white text-lg mb-4">Uji Coba Empat Peran Pengguna (Multi-Role)</h3>
+                <div className="mb-4 p-3 bg-amber-500/10 text-amber-300 rounded-xl text-xs border border-amber-500/20 font-bold leading-relaxed">
+                  📢 PENTING: Gunakan tombol <span className="text-white underline">"Masuk Via Google (Akun Real)"</span> di halaman login untuk masuk dengan akun Google Anda sendiri. Ini akan mendaftarkan laundry Anda langsung ke database Firestore Anda sendiri secara aman dan permanen!
+                </div>
+                <h3 className="font-extrabold text-white text-lg mb-4">Uji Coba Cepat Peran Pengguna (Multi-Role)</h3>
                 <p className="text-slate-400 text-xs mb-6">Nikmati kemudahan simulasi dengan akun instan di bawah ini pada halaman login:</p>
                 
                 <div className="space-y-4">
@@ -360,43 +375,63 @@ export default function App() {
 
                   {/* FORM RENDER: EMAIL ACCREDITED FOR PLATFORM OR OWNER */}
                   {loginMethod === 'google' ? (
-                    <form onSubmit={handleGoogleLogin} className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Alamat Email Owner / Admin</label>
-                        <input 
-                          type="email"
-                          placeholder="Ketik email, contoh: owner@laundry.com"
-                          value={emailInput}
-                          onChange={(e) => setEmailInput(e.target.value)}
-                          required
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <div className="mt-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1.5">
-                          <p className="text-[10px] text-blue-755 font-bold uppercase tracking-wider">Metode Demo Email Shortcut:</p>
-                          <button 
-                            type="button"
-                            onClick={() => setEmailInput('aisugiharti12@admin.smp.belajar.id')}
-                            className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
-                          >
-                            &bull; aisugiharti12@admin.smp.belajar.id (Super Admin)
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setEmailInput('owner@laundry.com')}
-                            className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
-                          >
-                            &bull; owner@laundry.com (Hj. Sugiharti - Owner Clean & Fresh)
-                          </button>
-                        </div>
+                    <div className="space-y-4">
+                      {/* REAL GOOGLE AUTH POPUP BUTTON */}
+                      <button 
+                        type="button"
+                        onClick={handleGoogleLoginReal}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl transition text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-500/10"
+                      >
+                        <span className="w-5 h-5 bg-white text-blue-600 font-extrabold flex items-center justify-center rounded-lg text-xs">G</span>
+                        Masuk Via Google (Akun Real)
+                      </button>
+
+                      {/* SEPARATOR */}
+                      <div className="flex items-center gap-2 my-4">
+                        <div className="h-px bg-slate-200 flex-grow" />
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Atau Lewat Simulasi Sandbox</span>
+                        <div className="h-px bg-slate-200 flex-grow" />
                       </div>
 
-                      <button 
-                        type="submit"
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition text-sm flex items-center justify-center gap-2 shadow-sm"
-                      >
-                        Simulasi Google Login Pop-up
-                      </button>
-                    </form>
+                      {/* SIMULATION FORM */}
+                      <form onSubmit={handleGoogleLogin} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Alamat Email Owner / Admin (Simulasi)</label>
+                          <input 
+                            type="email"
+                            placeholder="Ketik email, contoh: owner@laundry.com"
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            required
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <div className="mt-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1.5">
+                            <p className="text-[10px] text-blue-755 font-bold uppercase tracking-wider">Metode Demo Email Shortcut:</p>
+                            <button 
+                              type="button"
+                              onClick={() => setEmailInput('aisugiharti12@admin.smp.belajar.id')}
+                              className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
+                            >
+                              &bull; aisugiharti12@admin.smp.belajar.id (Super Admin)
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => setEmailInput('owner@laundry.com')}
+                              className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
+                            >
+                              &bull; owner@laundry.com (Hj. Sugiharti - Owner Clean & Fresh)
+                            </button>
+                          </div>
+                        </div>
+
+                        <button 
+                          type="submit"
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl transition text-xs flex items-center justify-center gap-2 shadow-sm"
+                        >
+                          Simulasi Dengan Email Di Atas
+                        </button>
+                      </form>
+                    </div>
                   ) : (
                     /* FORM RENDER: INTERNAL LOGIN FROM USERNAME */
                     <form onSubmit={handleInternalLogin} className="space-y-4">

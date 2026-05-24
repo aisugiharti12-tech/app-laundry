@@ -335,12 +335,45 @@ const INITIAL_PAYMENTS: LaundryPayment[] = [
 // ACTIVE FIRESTORE REAL-TIME SYNCHRONIZED STORAGE CACHE
 // ==========================================
 
+const INITIAL_EXPENSES: LaundryExpense[] = [
+  {
+    expenseId: 'exp_001',
+    laundryId: 'laundry_clean_fresh',
+    category: 'operational',
+    title: 'Pembelian Deterjen Liquid & Parfum Lavender 10L',
+    amount: 185000,
+    date: '2026-05-20',
+    createdAt: new Date('2026-05-20T10:00:00Z').toISOString()
+  },
+  {
+    expenseId: 'exp_002',
+    laundryId: 'laundry_clean_fresh',
+    category: 'equipment',
+    title: 'Servis Dinamo Mesin Pengering LG Dryer Sektor 3',
+    amount: 320000,
+    date: '2026-05-22',
+    createdAt: new Date('2026-05-22T14:30:00Z').toISOString()
+  },
+  {
+    expenseId: 'exp_003',
+    laundryId: 'laundry_clean_fresh',
+    category: 'salary',
+    title: 'Bonus Insentif Harian Staff Siti Rahma (Lembur Akhir Pekan)',
+    amount: 75000,
+    date: '2026-05-24',
+    createdAt: new Date('2026-05-24T18:00:00Z').toISOString()
+  }
+];
+
+import { LaundryExpense } from './types';
+
 let cache_users: UserProfile[] = [];
 let cache_laundries: Laundry[] = [];
 let cache_services: LaundryService[] = [];
 let cache_orders: LaundryOrder[] = [];
 let cache_progress: OrderProgress[] = [];
 let cache_payments: LaundryPayment[] = [];
+let cache_expenses: LaundryExpense[] = [];
 
 let activeSubscriptions: (() => void)[] = [];
 
@@ -474,6 +507,19 @@ export function startFirebaseSync(user: UserProfile) {
     } catch (error) {
       console.warn("Failed to subscribe payments sync:", error);
     }
+
+    try {
+      const unsubExpenses = onSnapshot(collection(libDb, 'laundries', laundryId, 'expenses'), (snapshot) => {
+        cache_expenses = snapshot.docs.map(d => d.data() as LaundryExpense);
+        localStorage.setItem('lnd_expenses', JSON.stringify(cache_expenses));
+        notifyStateChange();
+      }, (error) => {
+        console.warn("Active expenses listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubExpenses);
+    } catch (error) {
+      console.warn("Failed to subscribe expenses sync:", error);
+    }
   }
 }
 
@@ -494,6 +540,7 @@ const getServicesLocal = () => cache_services.length > 0 ? cache_services : getL
 const getOrdersLocal = () => cache_orders.length > 0 ? cache_orders : getLocalStorageBackup('orders', []);
 const getProgressLocal = () => cache_progress.length > 0 ? cache_progress : getLocalStorageBackup('progress', []);
 const getPaymentsLocal = () => cache_payments.length > 0 ? cache_payments : getLocalStorageBackup('payments', []);
+const getExpensesLocal = () => cache_expenses.length > 0 ? cache_expenses : getLocalStorageBackup('expenses', INITIAL_EXPENSES);
 
 // ==========================================
 // UNIFIED DATA SERVICE (DELEGATING TO PERSISTENT FIREBASE FIRESTORE)
@@ -1094,5 +1141,50 @@ export const laundryService = {
       console.warn("Error fetching public invoice progress:", error);
       return [];
     }
+  },
+
+  getExpenses: (laundryId: string): LaundryExpense[] => {
+    const all = getExpensesLocal();
+    return all.filter(e => e.laundryId === laundryId);
+  },
+
+  addExpense: async (expense: Omit<LaundryExpense, 'expenseId' | 'createdAt'>): Promise<LaundryExpense> => {
+    const expenseId = `exp_${Date.now()}`;
+    const newExpense: LaundryExpense = {
+      ...expense,
+      expenseId,
+      createdAt: new Date().toISOString()
+    };
+
+    const updated = [...cache_expenses, newExpense];
+    cache_expenses = updated;
+    localStorage.setItem('lnd_expenses', JSON.stringify(updated));
+
+    if (useRealFirebase) {
+      try {
+        const expenseDoc = doc(libDb, 'laundries', expense.laundryId, 'expenses', expenseId);
+        await setDoc(expenseDoc, newExpense);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, `expenses/${expenseId}`);
+      }
+    }
+    notifyStateChange();
+    return newExpense;
+  },
+
+  deleteExpense: async (laundryId: string, expenseId: string): Promise<void> => {
+    const filtered = cache_expenses.filter(e => e.expenseId !== expenseId);
+    cache_expenses = filtered;
+    localStorage.setItem('lnd_expenses', JSON.stringify(filtered));
+
+    if (useRealFirebase) {
+      try {
+        const expenseDoc = doc(libDb, 'laundries', laundryId, 'expenses', expenseId);
+        await deleteDoc(expenseDoc);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.DELETE, `expenses/${expenseId}`);
+      }
+    }
+    notifyStateChange();
   }
 };

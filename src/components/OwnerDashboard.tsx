@@ -19,11 +19,14 @@ import {
   Activity,
   FileSpreadsheet,
   Calendar,
-  Download
+  Download,
+  Wallet,
+  Receipt,
+  TrendingDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { laundryService } from '../firebase';
-import { Laundry, LaundryService as ServiceModel, UserProfile, LaundryOrder } from '../types';
+import { Laundry, LaundryService as ServiceModel, UserProfile, LaundryOrder, LaundryExpense, ExpenseCategory } from '../types';
 import UserAvatar from './UserAvatar';
 
 interface OwnerDashboardProps {
@@ -31,13 +34,23 @@ interface OwnerDashboardProps {
 }
 
 export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps) {
-  const [activeTab, setActiveTab] = React.useState<'summary' | 'services' | 'staff' | 'orders' | 'settings'>('summary');
+  const [activeTab, setActiveTab] = React.useState<'summary' | 'services' | 'staff' | 'orders' | 'settings' | 'expenses'>('summary');
   
   // Data States
   const [laundry, setLaundry] = React.useState<Laundry | null>(null);
   const [services, setServices] = React.useState<ServiceModel[]>([]);
   const [staff, setStaff] = React.useState<UserProfile[]>([]);
   const [orders, setOrders] = React.useState<LaundryOrder[]>([]);
+  const [expenses, setExpenses] = React.useState<LaundryExpense[]>([]);
+
+  // Expense Form States
+  const [expenseTitle, setExpenseTitle] = React.useState('');
+  const [expenseAmount, setExpenseAmount] = React.useState<number | ''>('');
+  const [expenseCategory, setExpenseCategory] = React.useState<ExpenseCategory>('operational');
+  const [expenseDate, setExpenseDate] = React.useState(() => new Date().toISOString().split('T')[0]);
+  const [expenseNotes, setExpenseNotes] = React.useState('');
+  const [expenseSuccess, setExpenseSuccess] = React.useState('');
+  const [expenseError, setExpenseError] = React.useState('');
 
   // Report Period & Filter States
   const [filterPeriod, setFilterPeriod] = React.useState<'all' | 'weekly' | 'monthly' | 'custom'>('all');
@@ -108,6 +121,9 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
 
     // 4. Load orders
     setOrders(laundryService.getOrders(currentLaundryId));
+
+    // 5. Load expenses
+    setExpenses(laundryService.getExpenses(currentLaundryId));
   };
 
   React.useEffect(() => {
@@ -222,6 +238,51 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
     }
   };
 
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setExpenseSuccess('');
+    setExpenseError('');
+
+    if (!expenseTitle.trim()) {
+      setExpenseError('Lengkapi deskripsi pengeluaran.');
+      return;
+    }
+    if (expenseAmount === '' || Number(expenseAmount) <= 0) {
+      setExpenseError('Jumlah pengeluaran harus lebih besar dari 0.');
+      return;
+    }
+
+    try {
+      await laundryService.addExpense({
+        laundryId: currentLaundryId,
+        category: expenseCategory,
+        title: expenseTitle.trim(),
+        amount: Number(expenseAmount),
+        date: expenseDate,
+        notes: expenseNotes.trim() || undefined
+      });
+
+      setExpenseSuccess('Sukses mencatat pengeluaran baru!');
+      setExpenseTitle('');
+      setExpenseAmount('');
+      setExpenseNotes('');
+      setExpenseCategory('operational');
+      loadAllData();
+      setTimeout(() => setExpenseSuccess(''), 4500);
+    } catch (err: any) {
+      setExpenseError(err.message || 'Gagal menambahkan data pengeluaran.');
+    }
+  };
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    try {
+      await laundryService.deleteExpense(currentLaundryId, expenseId);
+      loadAllData();
+    } catch (err: any) {
+      console.warn("Gagal menghapus pengeluaran:", err);
+    }
+  };
+
   // Calculation of Stats
   const revenueTotal = orders
     .filter(o => o.paymentStatus === 'paid')
@@ -271,6 +332,47 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
     });
   }, [orders, filterPeriod, startDate, endDate]);
 
+  // Filtered expenses based on selected report period
+  const filteredReportExpenses = React.useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    return expenses.filter(e => {
+      if (!e.date) return false;
+      const expDate = new Date(e.date);
+
+      if (filterPeriod === 'weekly') {
+        const lastWeek = new Date();
+        lastWeek.setDate(today.getDate() - 7);
+        lastWeek.setHours(0, 0, 0, 0);
+        return expDate >= lastWeek && expDate <= today;
+      }
+
+      if (filterPeriod === 'monthly') {
+        const lastMonth = new Date();
+        lastMonth.setDate(today.getDate() - 30);
+        lastMonth.setHours(0, 0, 0, 0);
+        return expDate >= lastMonth && expDate <= today;
+      }
+
+      if (filterPeriod === 'custom') {
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          if (expDate < start) return false;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          if (expDate > end) return false;
+        }
+        return true;
+      }
+
+      return true; // 'all'
+    });
+  }, [expenses, filterPeriod, startDate, endDate]);
+
   // Calculations for dynamic selected period preview cards
   const periodPaidRevenue = React.useMemo(() => {
     return filteredReportOrders
@@ -284,6 +386,14 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
       .reduce((sum, o) => sum + o.totalPrice, 0);
   }, [filteredReportOrders]);
 
+  const periodTotalExpenses = React.useMemo(() => {
+    return filteredReportExpenses.reduce((sum, e) => sum + e.amount, 0);
+  }, [filteredReportExpenses]);
+
+  const periodNetProfit = React.useMemo(() => {
+    return periodPaidRevenue - periodTotalExpenses;
+  }, [periodPaidRevenue, periodTotalExpenses]);
+
   const periodVolumeKg = React.useMemo(() => {
     return filteredReportOrders
       .filter(o => o.unit === 'kg')
@@ -296,55 +406,88 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
       .reduce((sum, o) => sum + o.weight, 0);
   }, [filteredReportOrders]);
 
-  // Excel (.xlsx) file generator trigger
+  // Excel (.xlsx) file generator trigger with supporting transaction and expense worksheets
   const handleExportToExcel = () => {
-    if (filteredReportOrders.length === 0) {
-      alert("Tidak ada data transaksi yang dapat diekspor untuk periode terpilih.");
+    if (filteredReportOrders.length === 0 && filteredReportExpenses.length === 0) {
+      alert("Tidak ada data transaksi atau pengeluaran yang dapat diekspor untuk periode terpilih.");
       return;
     }
 
-    // Build human-friendly columns for sheet
-    const listForExcel = filteredReportOrders.map((o, idx) => ({
-      "No.": idx + 1,
-      "Nomor Invoice": o.invoiceNo,
-      "Nama Pelanggan": o.customerName,
-      "Nomor HP": o.customerPhone,
-      "Nama Layanan": o.serviceName,
-      "Bobot Cucian": o.weight,
-      "Satuan": o.unit.toUpperCase(),
-      "Harga Satuan (Rp)": o.servicePrice,
-      "Total Biaya (Rp)": o.totalPrice,
-      "Status Pembayaran": o.paymentStatus === 'paid' ? 'LUNAS (PAID)' : 'BELUM BAYAR (UNPAID)',
-      "Status Proses Laundry": o.laundryStatus.toUpperCase(),
-      "Kasir Pembuat": o.cashierId || '-',
-      "Tanggal Masuk": new Date(o.createdAt).toLocaleString('id-ID'),
-      "Estimasi Selesai": o.estimatedCompletion ? new Date(o.estimatedCompletion).toLocaleString('id-ID') : '-',
-      "Catatan Nota": o.notes || '-'
-    }));
-
-    // Generate SheetJS workbook & worksheet objects
-    const worksheet = XLSX.utils.json_to_sheet(listForExcel);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Transaksi");
 
-    // Add visual column cell limits to fit typography sizes beautifully
-    worksheet['!cols'] = [
-      { wch: 6 },   // No.
-      { wch: 16 },  // Nomor Invoice
-      { wch: 22 },  // Nama Pelanggan
-      { wch: 16 },  // Nomor HP
-      { wch: 26 },  // Nama Layanan
-      { wch: 13 },  // Bobot Cucian
-      { wch: 10 },  // Satuan
-      { wch: 17 },  // Harga Satuan
-      { wch: 17 },  // Total Biaya
-      { wch: 24 },  // Status Pembayaran
-      { wch: 22 },  // Status Proses Laundry
-      { wch: 16 },  // Kasir Pembuat
-      { wch: 22 },  // Tanggal Masuk
-      { wch: 22 },  // Estimasi Selesai
-      { wch: 28 },  // Catatan Nota
-    ];
+    // 1. Sheet Pendapatan
+    if (filteredReportOrders.length > 0) {
+      const listForExcel = filteredReportOrders.map((o, idx) => ({
+        "No.": idx + 1,
+        "Nomor Invoice": o.invoiceNo,
+        "Nama Pelanggan": o.customerName,
+        "Nomor HP": o.customerPhone,
+        "Nama Layanan": o.serviceName,
+        "Bobot Cucian": o.weight,
+        "Satuan": o.unit.toUpperCase(),
+        "Harga Satuan (Rp)": o.servicePrice,
+        "Total Biaya (Rp)": o.totalPrice,
+        "Status Pembayaran": o.paymentStatus === 'paid' ? 'LUNAS (PAID)' : 'BELUM BAYAR (UNPAID)',
+        "Status Proses Laundry": o.laundryStatus.toUpperCase(),
+        "Kasir Pembuat": o.cashierId || '-',
+        "Tanggal Masuk": new Date(o.createdAt).toLocaleString('id-ID'),
+        "Estimasi Selesai": o.estimatedCompletion ? new Date(o.estimatedCompletion).toLocaleString('id-ID') : '-',
+        "Catatan Nota": o.notes || '-'
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(listForExcel);
+      worksheet['!cols'] = [
+        { wch: 6 },   // No.
+        { wch: 16 },  // Nomor Invoice
+        { wch: 22 },  // Nama Pelanggan
+        { wch: 16 },  // Nomor HP
+        { wch: 26 },  // Nama Layanan
+        { wch: 13 },  // Bobot Cucian
+        { wch: 10 },  // Satuan
+        { wch: 17 },  // Harga Satuan
+        { wch: 17 },  // Total Biaya
+        { wch: 24 },  // Status Pembayaran
+        { wch: 22 },  // Status Proses Laundry
+        { wch: 16 },  // Kasir Pembuat
+        { wch: 22 },  // Tanggal Masuk
+        { wch: 22 },  // Estimasi Selesai
+        { wch: 28 },  // Catatan Nota
+      ];
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Pendapatan (Omset)");
+    }
+
+    // 2. Sheet Pengeluaran
+    if (filteredReportExpenses.length > 0) {
+      const listExpensesForExcel = filteredReportExpenses.map((exp, idx) => {
+        const categoryMap = {
+          operational: 'OPERASIONAL (Utilitas, Sabun, Deterjen, dll)',
+          salary: 'GAJI / BONUS KARYAWAN',
+          equipment: 'BELANJA MODAL / ALAT BARU',
+          other: 'LAIN-LAIN'
+        };
+        return {
+          "No.": idx + 1,
+          "Kategori": categoryMap[exp.category] || exp.category.toUpperCase(),
+          "Nama Pengeluaran": exp.title,
+          "Jumlah Pengeluaran (Rp)": exp.amount,
+          "Tanggal Pengeluaran": exp.date,
+          "Tanggal Input Sistem": new Date(exp.createdAt).toLocaleString('id-ID'),
+          "Catatan": exp.notes || '-'
+        };
+      });
+
+      const worksheetExpenses = XLSX.utils.json_to_sheet(listExpensesForExcel);
+      worksheetExpenses['!cols'] = [
+        { wch: 6 },   // No.
+        { wch: 28 },  // Kategori
+        { wch: 32 },  // Nama Pengeluaran
+        { wch: 18 },  // Jumlah Pengeluaran
+        { wch: 18 },  // Tanggal Pengeluaran
+        { wch: 22 },  // Tanggal Input
+        { wch: 28 },  // Catatan
+      ];
+      XLSX.utils.book_append_sheet(workbook, worksheetExpenses, "Laporan Pengeluaran (Beban)");
+    }
 
     // Determine filename period descriptor
     let dateStr = 'Masing_Semua';
@@ -357,7 +500,7 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
     }
 
     const cleanLaundryName = (laundry?.name || 'Laundry').replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `Laporan_Laundry_${cleanLaundryName}_${dateStr}.xlsx`;
+    const filename = `Laporan_Keuangan_${cleanLaundryName}_${dateStr}.xlsx`;
 
     // Download file locally to browser
     XLSX.writeFile(workbook, filename);
@@ -429,6 +572,17 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
           Kelola Akses Karyawan
         </button>
         <button 
+          onClick={() => setActiveTab('expenses')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'expenses' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Wallet className="w-4 h-4" />
+          Beban & Pengeluaran ({expenses.length})
+        </button>
+        <button 
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
             activeTab === 'settings' 
@@ -490,7 +644,7 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-600/10 self-start md:self-auto w-full md:w-auto"
               >
                 <Download className="w-4 h-4" />
-                Ekspor Laporan Excel ({filteredReportOrders.length} Order)
+                Ekspor Laporan Keuangan (.xlsx)
               </button>
             </div>
 
@@ -600,24 +754,34 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
             <div className="bg-slate-50/75 border border-slate-200/80 rounded-2xl p-5 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-200/50 pb-2.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                  Pratinjau Ringkasan Periode Terpilih
+                  Pratinjau Ringkasan Laporan (Periode Terpilih)
                 </span>
                 <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-150 px-2.5 py-0.5 rounded font-bold uppercase tracking-wide">
-                  {filteredReportOrders.length} Cucian Ditemukan
+                  {filteredReportOrders.length} Order / {filteredReportExpenses.length} Beban
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Omset Lunas</span>
                   <span className="text-sm font-black text-emerald-600 block">{formatRupiah(periodPaidRevenue)}</span>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Piutang Kasir</span>
-                  <span className="text-sm font-black text-rose-600 block">{formatRupiah(periodUnpaidRevenue)}</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Pengeluaran</span>
+                  <span className="text-sm font-black text-rose-600 block">{formatRupiah(periodTotalExpenses)}</span>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Bobot Kiloan (Kg)</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Laba Bersih</span>
+                  <span className={`text-sm font-black block ${periodNetProfit >= 0 ? 'text-blue-600' : 'text-amber-600'}`}>
+                    {formatRupiah(periodNetProfit)}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Piutang Kasir</span>
+                  <span className="text-sm font-black text-slate-500 block">{formatRupiah(periodUnpaidRevenue)}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Bobot Kilo (Kg)</span>
                   <span className="text-sm font-black text-slate-700 block">{periodVolumeKg} Kg</span>
                 </div>
                 <div className="space-y-1">
@@ -932,6 +1096,186 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* EXPENSE & beban TAB */}
+      {activeTab === 'expenses' && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+          
+          {/* COLUMN 1: RECORD EXPENSE FORM (col-span-2) */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+              <div className="border-b border-slate-100 pb-4">
+                <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-blue-600" />
+                  Catat Pengeluaran Baru
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Masukkan semua pengeluaran operasional (sabun, listrik, air), belanja modal (mesin/alat), maupun gaji karyawan.
+                </p>
+              </div>
+
+              {expenseSuccess && (
+                <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl text-xs font-semibold">
+                  {expenseSuccess}
+                </div>
+              )}
+              {expenseError && (
+                <div className="p-3 bg-rose-50 text-rose-800 border border-rose-100 rounded-xl text-xs font-semibold">
+                  {expenseError}
+                </div>
+              )}
+
+              <form onSubmit={handleAddExpense} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Kategori Pengeluaran</label>
+                  <select
+                    value={expenseCategory}
+                    onChange={(e) => setExpenseCategory(e.target.value as ExpenseCategory)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  >
+                    <option value="operational">Operasional (Sabun, Deterjen, Plastik, Listrik/Air)</option>
+                    <option value="salary">Gaji / Bonus / Uang Lembur Karyawan</option>
+                    <option value="equipment">Belanja Modal / Pembelian & Servis Mesin (Aset)</option>
+                    <option value="other">Lain-lain / Biaya Tak Terduga</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Deskripsi / Judul Pengeluaran</label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Beli Deterjen Liquid 2 Jerigen"
+                    value={expenseTitle}
+                    onChange={(e) => setExpenseTitle(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jumlah (Rupiah)</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-2.5 text-sm font-bold text-slate-400">Rp</span>
+                      <input
+                        type="number"
+                        placeholder="75000"
+                        value={expenseAmount === '' ? '' : expenseAmount}
+                        onChange={(e) => setExpenseAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Tanggal Pengeluaran</label>
+                    <input
+                      type="date"
+                      value={expenseDate}
+                      onChange={(e) => setExpenseDate(e.target.value)}
+                      required
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Catatan Tambahan (Opsional)</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Keterangan tambahan toko atau kuitansi..."
+                    value={expenseNotes}
+                    onChange={(e) => setExpenseNotes(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 rounded-xl transition text-sm shadow-sm cursor-pointer"
+                >
+                  Simpan Catatan Pengeluaran
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* COLUMN 2: EXPENSES LOG LIST (col-span-3) */}
+          <div className="lg:col-span-3 space-y-4">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-base">Riwayat Beban Pengeluaran Outlet</h3>
+                  <p className="text-xs text-slate-400 mt-1">Daftar semua belanja modal, upah, operasional untuk mengukur profit sebenarnya.</p>
+                </div>
+                <span className="text-xs font-black bg-rose-50 border border-rose-150 text-rose-700 px-3 py-1 rounded-lg">
+                  Total Terdaftar: {formatRupiah(expenses.reduce((sum, e) => sum + e.amount, 0))}
+                </span>
+              </div>
+
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {expenses.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    Belum ada pengeluaran yang dicatat. Gunakan formulir di sebelah kiri untuk merekam pengeluaran baru.
+                  </div>
+                ) : (
+                  [...expenses].sort((a,b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()).map((exp) => {
+                    const categoryColors = {
+                      operational: 'bg-cyan-50 border-cyan-155 text-cyan-800',
+                      salary: 'bg-indigo-50 border-indigo-155 text-indigo-800',
+                      equipment: 'bg-emerald-50 border-emerald-155 text-emerald-800',
+                      other: 'bg-slate-100 border-slate-200 text-slate-700'
+                    };
+                    const categoryLabels = {
+                      operational: 'Operasional',
+                      salary: 'Gaji Karyawan',
+                      equipment: 'Aset / Servis Alat',
+                      other: 'Lain-lain'
+                    };
+
+                    return (
+                      <div key={exp.expenseId} className="border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 p-4 rounded-xl transition space-y-2 relative group">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${categoryColors[exp.category] || categoryColors.other}`}>
+                                {categoryLabels[exp.category] || exp.category}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono font-bold">
+                                Tanggal: {exp.date}
+                              </span>
+                            </div>
+                            <h4 className="font-bold text-slate-800 text-sm leading-tight pt-1">{exp.title}</h4>
+                          </div>
+                          <div className="text-right flex items-center gap-3">
+                            <span className="text-slate-800 font-black text-sm">{formatRupiah(exp.amount)}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteExpense(exp.expenseId)}
+                              className="text-slate-400 hover:text-rose-600 transition p-1.5 hover:bg-rose-50 rounded bg-transparent cursor-pointer"
+                              title="Hapus Catatan Pengeluaran"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {exp.notes && (
+                          <p className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100 leading-relaxed italic">
+                            Catatan: {exp.notes}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
 

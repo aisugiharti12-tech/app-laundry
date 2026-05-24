@@ -79,3 +79,17 @@ export interface LaundryPayment {
   paymentDate: string;
   cashierId: string;
 }
+
+export type ExpenseCategory = 'operational' | 'salary' | 'equipment' | 'other';
+
+export interface LaundryExpense {
+  expenseId: string;
+  laundryId: string;
+  category: ExpenseCategory;
+  title: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  createdAt: string;
+}
+

@@ -19,7 +19,7 @@ import {
   Layers,
   ChevronRight
 } from 'lucide-react';
-import { laundryService, useRealFirebase } from './firebase';
+import { laundryService, useRealFirebase, startFirebaseSync, clearFirebaseSubscriptions } from './firebase';
 import { UserProfile, UserRole } from './types';
 
 // Importing Dashboard sub-components
@@ -56,6 +56,18 @@ export default function App() {
       if (active) setCurrentUser(active);
     }
   }, []);
+
+  // Context-aware secure listener synchronization hook
+  React.useEffect(() => {
+    if (currentUser) {
+      startFirebaseSync(currentUser);
+    } else {
+      clearFirebaseSubscriptions();
+    }
+    return () => {
+      clearFirebaseSubscriptions();
+    };
+  }, [currentUser]);
 
   const handleGoogleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +114,7 @@ export default function App() {
   };
 
   const handleResetDemoDb = () => {
-    if (window.confirm('Reset database lokal? Seluruh order transaksi buatan Anda akan terhapus dan kembali ke setingan awal.')) {
+    if (window.confirm('Reset Sesi Login & Cache Aplikasi? Langkah ini hanya akan menghapus cache login pada browser Anda.')) {
       localStorage.clear();
       window.location.reload();
     }

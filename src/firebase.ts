@@ -6,7 +6,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { 
-  getFirestore, 
   collection, 
   doc, 
   setDoc, 
@@ -15,7 +14,9 @@ import {
   updateDoc, 
   deleteDoc, 
   onSnapshot, 
-  collectionGroup 
+  collectionGroup,
+  query,
+  where
 } from 'firebase/firestore';
 import { db as libDb, auth as libAuth, googleProvider, useRealFirebase } from './lib/firebase';
 import { 
@@ -341,91 +342,116 @@ let cache_orders: LaundryOrder[] = [];
 let cache_progress: OrderProgress[] = [];
 let cache_payments: LaundryPayment[] = [];
 
-// Speculative seed function to ensure database has records if loaded for first time
-const checkAndSeedDatabase = async () => {
-  try {
-    const userSnap = await getDocs(collection(libDb, 'users'));
-    if (userSnap.empty) {
-      console.log("Firestore is empty! Seeding initial production metadata & profiles...");
-      for (const u of INITIAL_USERS) {
-        await setDoc(doc(libDb, 'users', u.userId), u);
-      }
-      for (const l of INITIAL_LAUNDRIES) {
-        await setDoc(doc(libDb, 'laundries', l.laundryId), l);
-      }
-      for (const s of INITIAL_SERVICES) {
-        await setDoc(doc(libDb, 'laundries', s.laundryId, 'services', s.serviceId), s);
-      }
-      for (const o of INITIAL_ORDERS) {
-        await setDoc(doc(libDb, 'laundries', o.laundryId, 'orders', o.orderId), o);
-      }
-      for (const p of INITIAL_PROGRESS) {
-        const ord = INITIAL_ORDERS.find(x => x.orderId === p.orderId);
-        if (ord) {
-          await setDoc(doc(libDb, 'laundries', ord.laundryId, 'orders', p.orderId, 'progress', p.progressId), p);
-        }
-      }
-      for (const pm of INITIAL_PAYMENTS) {
-        await setDoc(doc(libDb, 'laundries', pm.laundryId, 'payments', pm.paymentId), pm);
-      }
-      console.log("Firebase Database populated successfully.");
+let activeSubscriptions: (() => void)[] = [];
+
+export function clearFirebaseSubscriptions() {
+  activeSubscriptions.forEach(unsub => {
+    try {
+      unsub();
+    } catch (e) {
+      console.warn("Error releasing subscription:", e);
     }
-  } catch (error) {
-    console.warn("Seeding omitted or blocked (database likely has rules/pre-populated):", error);
-  }
-};
-
-// Initialize listeners
-if (useRealFirebase) {
-  // Check and seed if necessary on startup
-  setTimeout(() => {
-    checkAndSeedDatabase();
-  }, 1000);
-
-  onSnapshot(collection(libDb, 'users'), (snapshot) => {
-    cache_users = snapshot.docs.map(d => d.data() as UserProfile);
-    localStorage.setItem('lnd_users', JSON.stringify(cache_users));
-  }, (error) => {
-    console.warn("Active users listener message:", error.message);
   });
-
-  onSnapshot(collection(libDb, 'laundries'), (snapshot) => {
-    cache_laundries = snapshot.docs.map(d => d.data() as Laundry);
-    localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
-  }, (error) => {
-    console.warn("Active laundries listener message:", error.message);
-  });
-
-  onSnapshot(collectionGroup(libDb, 'services'), (snapshot) => {
-    cache_services = snapshot.docs.map(d => d.data() as LaundryService);
-    localStorage.setItem('lnd_services', JSON.stringify(cache_services));
-  }, (error) => {
-    console.warn("Active services listener message:", error.message);
-  });
-
-  onSnapshot(collectionGroup(libDb, 'orders'), (snapshot) => {
-    cache_orders = snapshot.docs.map(d => d.data() as LaundryOrder);
-    localStorage.setItem('lnd_orders', JSON.stringify(cache_orders));
-  }, (error) => {
-    console.warn("Active orders listener message:", error.message);
-  });
-
-  onSnapshot(collectionGroup(libDb, 'progress'), (snapshot) => {
-    cache_progress = snapshot.docs.map(d => d.data() as OrderProgress);
-    localStorage.setItem('lnd_progress', JSON.stringify(cache_progress));
-  }, (error) => {
-    console.warn("Active progress listener message:", error.message);
-  });
-
-  onSnapshot(collectionGroup(libDb, 'payments'), (snapshot) => {
-    cache_payments = snapshot.docs.map(d => d.data() as LaundryPayment);
-    localStorage.setItem('lnd_payments', JSON.stringify(cache_payments));
-  }, (error) => {
-    console.warn("Active payments listener message:", error.message);
-  });
+  activeSubscriptions = [];
 }
 
-// Fallback logic to local caches if listeners are still syncing
+export function startFirebaseSync(user: UserProfile) {
+  clearFirebaseSubscriptions();
+  if (!useRealFirebase) return;
+
+  const { laundryId, role, userId } = user;
+  console.log(`Starting secure context-aware Firebase synchronization...`);
+
+  // 1. Sync User Profile records
+  try {
+    if (role === 'super_admin') {
+      const unsubUsers = onSnapshot(collection(libDb, 'users'), (snapshot) => {
+        cache_users = snapshot.docs.map(d => d.data() as UserProfile);
+        localStorage.setItem('lnd_users', JSON.stringify(cache_users));
+      }, (error) => {
+        console.warn("Active users listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubUsers);
+    } else if (laundryId) {
+      const q = query(collection(libDb, 'users'), where('laundryId', '==', laundryId));
+      const unsubUsers = onSnapshot(q, (snapshot) => {
+        cache_users = snapshot.docs.map(d => d.data() as UserProfile);
+        localStorage.setItem('lnd_users', JSON.stringify(cache_users));
+      }, (error) => {
+        console.warn("Active staff listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubUsers);
+    }
+  } catch (error) {
+    console.warn("Failed to subscribe user sync:", error);
+  }
+
+  // 2. Sync Laundries records
+  try {
+    if (role === 'super_admin') {
+      const unsubLaundries = onSnapshot(collection(libDb, 'laundries'), (snapshot) => {
+        cache_laundries = snapshot.docs.map(d => d.data() as Laundry);
+        localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
+      }, (error) => {
+        console.warn("Active laundries listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubLaundries);
+    } else if (laundryId) {
+      const unsubLaundry = onSnapshot(doc(libDb, 'laundries', laundryId), (snapshot) => {
+        if (snapshot.exists()) {
+          cache_laundries = [snapshot.data() as Laundry];
+          localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
+        }
+      }, (error) => {
+        console.warn("Active laundry details listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubLaundry);
+    }
+  } catch (error) {
+    console.warn("Failed to subscribe laundry sync:", error);
+  }
+
+  // 3. Sync Services, Orders, and Payments for active laundry context
+  if (laundryId) {
+    try {
+      const unsubServices = onSnapshot(collection(libDb, 'laundries', laundryId, 'services'), (snapshot) => {
+        cache_services = snapshot.docs.map(d => d.data() as LaundryService);
+        localStorage.setItem('lnd_services', JSON.stringify(cache_services));
+      }, (error) => {
+        console.warn("Active laundry services listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubServices);
+    } catch (error) {
+      console.warn("Failed to subscribe services sync:", error);
+    }
+
+    try {
+      const unsubOrders = onSnapshot(collection(libDb, 'laundries', laundryId, 'orders'), (snapshot) => {
+        cache_orders = snapshot.docs.map(d => d.data() as LaundryOrder);
+        localStorage.setItem('lnd_orders', JSON.stringify(cache_orders));
+      }, (error) => {
+        console.warn("Active laundry orders listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubOrders);
+    } catch (error) {
+      console.warn("Failed to subscribe orders sync:", error);
+    }
+
+    try {
+      const unsubPayments = onSnapshot(collection(libDb, 'laundries', laundryId, 'payments'), (snapshot) => {
+        cache_payments = snapshot.docs.map(d => d.data() as LaundryPayment);
+        localStorage.setItem('lnd_payments', JSON.stringify(cache_payments));
+      }, (error) => {
+        console.warn("Active payments listener message:", error.message);
+      });
+      activeSubscriptions.push(unsubPayments);
+    } catch (error) {
+      console.warn("Failed to subscribe payments sync:", error);
+    }
+  }
+}
+
+// Fallback logic to local caches if listeners are still syncing, falling back to clean arrays or initial data on fallback
 const getLocalStorageBackup = <T>(key: string, defaultArray: T[]): T[] => {
   try {
     const data = localStorage.getItem(`lnd_${key}`);
@@ -435,12 +461,13 @@ const getLocalStorageBackup = <T>(key: string, defaultArray: T[]): T[] => {
   }
 };
 
-const getUsersLocal = () => cache_users.length > 0 ? cache_users : getLocalStorageBackup('users', INITIAL_USERS);
-const getLaundriesLocal = () => cache_laundries.length > 0 ? cache_laundries : getLocalStorageBackup('laundries', INITIAL_LAUNDRIES);
-const getServicesLocal = () => cache_services.length > 0 ? cache_services : getLocalStorageBackup('services', INITIAL_SERVICES);
-const getOrdersLocal = () => cache_orders.length > 0 ? cache_orders : getLocalStorageBackup('orders', INITIAL_ORDERS);
-const getProgressLocal = () => cache_progress.length > 0 ? cache_progress : getLocalStorageBackup('progress', INITIAL_PROGRESS);
-const getPaymentsLocal = () => cache_payments.length > 0 ? cache_payments : getLocalStorageBackup('payments', INITIAL_PAYMENTS);
+// Fallback to empty [] so a fresh database doesn't auto-pollute or force-sync mock records 
+const getUsersLocal = () => cache_users.length > 0 ? cache_users : getLocalStorageBackup('users', []);
+const getLaundriesLocal = () => cache_laundries.length > 0 ? cache_laundries : getLocalStorageBackup('laundries', []);
+const getServicesLocal = () => cache_services.length > 0 ? cache_services : getLocalStorageBackup('services', []);
+const getOrdersLocal = () => cache_orders.length > 0 ? cache_orders : getLocalStorageBackup('orders', []);
+const getProgressLocal = () => cache_progress.length > 0 ? cache_progress : getLocalStorageBackup('progress', []);
+const getPaymentsLocal = () => cache_payments.length > 0 ? cache_payments : getLocalStorageBackup('payments', []);
 
 // ==========================================
 // UNIFIED DATA SERVICE (DELEGATING TO PERSISTENT FIREBASE FIRESTORE)
@@ -687,6 +714,10 @@ export const laundryService = {
     const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
     setDoc(orderDoc, newOrder).catch(e => handleFirestoreError(e, OperationType.CREATE, orderDoc.path));
 
+    // Save Order in public tracking invoice index
+    const publicInvoiceDoc = doc(libDb, 'orders_by_invoice', invoiceNo.toUpperCase());
+    setDoc(publicInvoiceDoc, newOrder).catch(e => console.warn("Error creating public invoice mapping:", e));
+
     // Save initial progress timeline entry
     const progressId = `prg_${Date.now()}_init`;
     const initialProgress: OrderProgress = {
@@ -700,6 +731,10 @@ export const laundryService = {
     };
     const progressDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId, 'progress', progressId);
     setDoc(progressDoc, initialProgress).catch(e => handleFirestoreError(e, OperationType.CREATE, progressDoc.path));
+
+    // Save Initial progress to public tracking index subcollection
+    const publicProgressDoc = doc(libDb, 'orders_by_invoice', invoiceNo.toUpperCase(), 'progress', progressId);
+    setDoc(publicProgressDoc, initialProgress).catch(e => console.warn("Error creating public progress mapping:", e));
 
     // Save payment transactions if already paid at registration
     if (order.paymentStatus === 'paid') {
@@ -731,12 +766,27 @@ export const laundryService = {
     const order = orders.find(o => o.orderId === orderId);
     if (!order) return null;
 
+    const updatedOrder = { 
+      ...order,
+      laundryStatus: status,
+      notes: notes || order.notes || ''
+    };
+
     // Save Order Status Updates In Firestore
     const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
     updateDoc(orderDoc, { 
       laundryStatus: status,
       notes: notes || order.notes || ''
     }).catch(e => handleFirestoreError(e, OperationType.UPDATE, orderDoc.path));
+
+    // Sync to public invoice tracking index
+    if (order.invoiceNo) {
+      const publicInvoiceDoc = doc(libDb, 'orders_by_invoice', order.invoiceNo.toUpperCase());
+      updateDoc(publicInvoiceDoc, {
+        laundryStatus: status,
+        notes: notes || order.notes || ''
+      }).catch(e => console.warn("Error updating public tracking invoice mapping:", e));
+    }
 
     const statusDescMap: Record<LaundryStatus, string> = {
       diterima: 'Laundry telah diterima di outlet.',
@@ -757,10 +807,17 @@ export const laundryService = {
       updatedByName,
       updatedAt: new Date().toISOString()
     };
+    
     const progressDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId, 'progress', progressId);
     setDoc(progressDoc, progress).catch(e => handleFirestoreError(e, OperationType.CREATE, progressDoc.path));
 
-    return { ...order, laundryStatus: status, notes: notes || order.notes || '' };
+    // Sync progress to public tracking index
+    if (order.invoiceNo) {
+      const publicProgressDoc = doc(libDb, 'orders_by_invoice', order.invoiceNo.toUpperCase(), 'progress', progressId);
+      setDoc(publicProgressDoc, progress).catch(e => console.warn("Error creating public progress update mapping:", e));
+    }
+
+    return updatedOrder;
   },
 
   receivePayment: (orderId: string, amount: number, method: 'cash' | 'transfer', cashierId: string) => {
@@ -768,8 +825,15 @@ export const laundryService = {
     const order = orders.find(o => o.orderId === orderId);
     if (!order) return null;
 
+    // Save Order Payment Update In Firestore
     const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
     updateDoc(orderDoc, { paymentStatus: 'paid' }).catch(e => handleFirestoreError(e, OperationType.UPDATE, orderDoc.path));
+
+    // Sync payment status to public invoice tracking index
+    if (order.invoiceNo) {
+      const publicInvoiceDoc = doc(libDb, 'orders_by_invoice', order.invoiceNo.toUpperCase());
+      updateDoc(publicInvoiceDoc, { paymentStatus: 'paid' }).catch(e => console.warn("Error updating payment in public tracking invoice mapping:", e));
+    }
 
     const paymentId = `pay_${Date.now()}`;
     const payment: LaundryPayment = {
@@ -797,5 +861,31 @@ export const laundryService = {
   getPayments: (laundryId: string): LaundryPayment[] => {
     const all = getPaymentsLocal();
     return all.filter(p => p.laundryId === laundryId);
+  },
+
+  getOrderByInvoiceAsync: async (invoiceNo: string): Promise<LaundryOrder | null> => {
+    try {
+      const docRef = doc(libDb, 'orders_by_invoice', invoiceNo.trim().toUpperCase());
+      const snapshot = await getDoc(docRef);
+      if (snapshot.exists()) {
+        return snapshot.data() as LaundryOrder;
+      }
+      return null;
+    } catch (error) {
+      console.warn("Error fetching public invoice order:", error);
+      return null;
+    }
+  },
+
+  getOrderProgressAsync: async (invoiceNo: string): Promise<OrderProgress[]> => {
+    try {
+      const colRef = collection(libDb, 'orders_by_invoice', invoiceNo.trim().toUpperCase(), 'progress');
+      const snapshot = await getDocs(colRef);
+      const list = snapshot.docs.map(d => d.data() as OrderProgress);
+      return list.sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+    } catch (error) {
+      console.warn("Error fetching public invoice progress:", error);
+      return [];
+    }
   }
 };

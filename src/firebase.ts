@@ -4,9 +4,20 @@
  */
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  collectionGroup 
+} from 'firebase/firestore';
+import { db as libDb, auth as libAuth, googleProvider, useRealFirebase } from './lib/firebase';
 import { 
   UserProfile, 
   Laundry, 
@@ -17,36 +28,61 @@ import {
   LaundryStatus
 } from './types';
 
-// Detect if we are using the placeholder credentials
-const isPlaceholder = 
-  !firebaseConfig || 
-  firebaseConfig.apiKey === 'PLACEHOLDER_API_KEY' || 
-  firebaseConfig.projectId === 'placeholder-laundry-app' ||
-  !firebaseConfig.apiKey;
-
-let db: any = null;
-let auth: any = null;
-let useRealFirebase = false;
-
-if (!isPlaceholder) {
-  try {
-    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    db = getFirestore(app);
-    auth = getAuth(app);
-    useRealFirebase = true;
-    console.log('Firebase initialized successfully.');
-  } catch (error) {
-    console.error('Firebase initialization failed, falling back to Simulator:', error);
-    useRealFirebase = false;
-  }
-} else {
-  console.log('Using local sandbox database simulator (Firebase not yet linked).');
-}
-
-export { db, auth, useRealFirebase };
+export { libDb as db, libAuth as auth, useRealFirebase };
 
 // ==========================================
-// LANDING INITIAL STATE & SIMULATOR DATABASE
+// ERROR HANDLER COMPLIANCE FOR FIRESTORE RULES SPECIALIZATION
+// ==========================================
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: libAuth.currentUser?.uid,
+      email: libAuth.currentUser?.email,
+      emailVerified: libAuth.currentUser?.emailVerified,
+      isAnonymous: libAuth.currentUser?.isAnonymous,
+      tenantId: libAuth.currentUser?.tenantId,
+      providerInfo: libAuth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// ==========================================
+// LANDING INITIAL STATE & SEED DATA DEFINITIONS
 // ==========================================
 
 const INITIAL_LAUNDRIES: Laundry[] = [
@@ -112,7 +148,7 @@ const INITIAL_SERVICES: LaundryService[] = [
 const INITIAL_USERS: UserProfile[] = [
   {
     userId: 'admin_platform_uid00',
-    email: 'aisugiharti12@admin.smp.belajar.id', // Matches the current environment's user email!
+    email: 'aisugiharti12@admin.smp.belajar.id',
     name: 'Ai Sugiharti (Super Admin)',
     role: 'super_admin',
     isActive: true,
@@ -294,73 +330,124 @@ const INITIAL_PAYMENTS: LaundryPayment[] = [
   }
 ];
 
-// Helper to initialize local storage database
-const initSandboxDb = () => {
-  if (!localStorage.getItem('lnd_users')) {
-    localStorage.setItem('lnd_users', JSON.stringify(INITIAL_USERS));
-  }
-  if (!localStorage.getItem('lnd_laundries')) {
-    localStorage.setItem('lnd_laundries', JSON.stringify(INITIAL_LAUNDRIES));
-  }
-  if (!localStorage.getItem('lnd_services')) {
-    localStorage.setItem('lnd_services', JSON.stringify(INITIAL_SERVICES));
-  }
-  if (!localStorage.getItem('lnd_orders')) {
-    localStorage.setItem('lnd_orders', JSON.stringify(INITIAL_ORDERS));
-  }
-  if (!localStorage.getItem('lnd_progress')) {
-    localStorage.setItem('lnd_progress', JSON.stringify(INITIAL_PROGRESS));
-  }
-  if (!localStorage.getItem('lnd_payments')) {
-    localStorage.setItem('lnd_payments', JSON.stringify(INITIAL_PAYMENTS));
-  }
-};
+// ==========================================
+// ACTIVE FIRESTORE REAL-TIME SYNCHRONIZED STORAGE CACHE
+// ==========================================
 
-// Initial run
-initSandboxDb();
+let cache_users: UserProfile[] = [];
+let cache_laundries: Laundry[] = [];
+let cache_services: LaundryService[] = [];
+let cache_orders: LaundryOrder[] = [];
+let cache_progress: OrderProgress[] = [];
+let cache_payments: LaundryPayment[] = [];
 
-// Local Storage operations
-export const sandboxDb = {
-  getCollection: <T>(key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments'): T[] => {
-    initSandboxDb();
-    const data = localStorage.getItem(`lnd_${key}`);
-    return data ? JSON.parse(data) : [];
-  },
-  saveCollection: (key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments', data: any[]) => {
-    localStorage.setItem(`lnd_${key}`, JSON.stringify(data));
-  },
-  getDoc: <T>(key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments', idKey: string, idVal: string): T | null => {
-    const list = sandboxDb.getCollection<any>(key);
-    return list.find(item => item[idKey] === idVal) || null;
-  },
-  addDoc: (key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments', doc: any) => {
-    const list = sandboxDb.getCollection<any>(key);
-    list.push(doc);
-    sandboxDb.saveCollection(key, list);
-    return doc;
-  },
-  updateDoc: (key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments', idKey: string, idVal: string, updates: any) => {
-    const list = sandboxDb.getCollection<any>(key);
-    const index = list.findIndex(item => item[idKey] === idVal);
-    if (index !== -1) {
-      list[index] = { ...list[index], ...updates };
-      sandboxDb.saveCollection(key, list);
-      return list[index];
+// Speculative seed function to ensure database has records if loaded for first time
+const checkAndSeedDatabase = async () => {
+  try {
+    const userSnap = await getDocs(collection(libDb, 'users'));
+    if (userSnap.empty) {
+      console.log("Firestore is empty! Seeding initial production metadata & profiles...");
+      for (const u of INITIAL_USERS) {
+        await setDoc(doc(libDb, 'users', u.userId), u);
+      }
+      for (const l of INITIAL_LAUNDRIES) {
+        await setDoc(doc(libDb, 'laundries', l.laundryId), l);
+      }
+      for (const s of INITIAL_SERVICES) {
+        await setDoc(doc(libDb, 'laundries', s.laundryId, 'services', s.serviceId), s);
+      }
+      for (const o of INITIAL_ORDERS) {
+        await setDoc(doc(libDb, 'laundries', o.laundryId, 'orders', o.orderId), o);
+      }
+      for (const p of INITIAL_PROGRESS) {
+        const ord = INITIAL_ORDERS.find(x => x.orderId === p.orderId);
+        if (ord) {
+          await setDoc(doc(libDb, 'laundries', ord.laundryId, 'orders', p.orderId, 'progress', p.progressId), p);
+        }
+      }
+      for (const pm of INITIAL_PAYMENTS) {
+        await setDoc(doc(libDb, 'laundries', pm.laundryId, 'payments', pm.paymentId), pm);
+      }
+      console.log("Firebase Database populated successfully.");
     }
-    return null;
-  },
-  deleteDoc: (key: 'users' | 'laundries' | 'services' | 'orders' | 'progress' | 'payments', idKey: string, idVal: string) => {
-    const list = sandboxDb.getCollection<any>(key);
-    const filtered = list.filter(item => item[idKey] !== idVal);
-    sandboxDb.saveCollection(key, filtered);
+  } catch (error) {
+    console.warn("Seeding omitted or blocked (database likely has rules/pre-populated):", error);
   }
 };
+
+// Initialize listeners
+if (useRealFirebase) {
+  // Check and seed if necessary on startup
+  setTimeout(() => {
+    checkAndSeedDatabase();
+  }, 1000);
+
+  onSnapshot(collection(libDb, 'users'), (snapshot) => {
+    cache_users = snapshot.docs.map(d => d.data() as UserProfile);
+    localStorage.setItem('lnd_users', JSON.stringify(cache_users));
+  }, (error) => {
+    console.warn("Active users listener message:", error.message);
+  });
+
+  onSnapshot(collection(libDb, 'laundries'), (snapshot) => {
+    cache_laundries = snapshot.docs.map(d => d.data() as Laundry);
+    localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
+  }, (error) => {
+    console.warn("Active laundries listener message:", error.message);
+  });
+
+  onSnapshot(collectionGroup(libDb, 'services'), (snapshot) => {
+    cache_services = snapshot.docs.map(d => d.data() as LaundryService);
+    localStorage.setItem('lnd_services', JSON.stringify(cache_services));
+  }, (error) => {
+    console.warn("Active services listener message:", error.message);
+  });
+
+  onSnapshot(collectionGroup(libDb, 'orders'), (snapshot) => {
+    cache_orders = snapshot.docs.map(d => d.data() as LaundryOrder);
+    localStorage.setItem('lnd_orders', JSON.stringify(cache_orders));
+  }, (error) => {
+    console.warn("Active orders listener message:", error.message);
+  });
+
+  onSnapshot(collectionGroup(libDb, 'progress'), (snapshot) => {
+    cache_progress = snapshot.docs.map(d => d.data() as OrderProgress);
+    localStorage.setItem('lnd_progress', JSON.stringify(cache_progress));
+  }, (error) => {
+    console.warn("Active progress listener message:", error.message);
+  });
+
+  onSnapshot(collectionGroup(libDb, 'payments'), (snapshot) => {
+    cache_payments = snapshot.docs.map(d => d.data() as LaundryPayment);
+    localStorage.setItem('lnd_payments', JSON.stringify(cache_payments));
+  }, (error) => {
+    console.warn("Active payments listener message:", error.message);
+  });
+}
+
+// Fallback logic to local caches if listeners are still syncing
+const getLocalStorageBackup = <T>(key: string, defaultArray: T[]): T[] => {
+  try {
+    const data = localStorage.getItem(`lnd_${key}`);
+    return data ? JSON.parse(data) : defaultArray;
+  } catch {
+    return defaultArray;
+  }
+};
+
+const getUsersLocal = () => cache_users.length > 0 ? cache_users : getLocalStorageBackup('users', INITIAL_USERS);
+const getLaundriesLocal = () => cache_laundries.length > 0 ? cache_laundries : getLocalStorageBackup('laundries', INITIAL_LAUNDRIES);
+const getServicesLocal = () => cache_services.length > 0 ? cache_services : getLocalStorageBackup('services', INITIAL_SERVICES);
+const getOrdersLocal = () => cache_orders.length > 0 ? cache_orders : getLocalStorageBackup('orders', INITIAL_ORDERS);
+const getProgressLocal = () => cache_progress.length > 0 ? cache_progress : getLocalStorageBackup('progress', INITIAL_PROGRESS);
+const getPaymentsLocal = () => cache_payments.length > 0 ? cache_payments : getLocalStorageBackup('payments', INITIAL_PAYMENTS);
 
 // ==========================================
-// UNIFIED DATA SERVICE (FIREBASE OR SIMULATION)
+// UNIFIED DATA SERVICE (DELEGATING TO PERSISTENT FIREBASE FIRESTORE)
 // ==========================================
 
 export const laundryService = {
+  
   // --- AUTH SERVICES ---
   getCurrentSimulatedUser: (): UserProfile | null => {
     const logged = localStorage.getItem('lnd_current_user');
@@ -376,11 +463,11 @@ export const laundryService = {
   },
 
   loginGoogleSimulated: (email: string): UserProfile => {
-    const users = sandboxDb.getCollection<UserProfile>('users');
+    // Try to find if user profile exists in custom users list first
+    const users = getUsersLocal();
     let user = users.find(u => u.email === email);
     
     if (!user) {
-      // Create owner automatically on successful Google sign-in demo if not found
       const newOwnerId = `owner_${Date.now()}`;
       const newLaundryId = `laundry_${Date.now()}`;
       
@@ -393,21 +480,16 @@ export const laundryService = {
         isActive: true,
         createdAt: new Date().toISOString()
       };
-      sandboxDb.addDoc('laundries', newLaundry);
 
-      // Pre-add core services for the new owner
-      const defaultServices: LaundryService[] = [
-        {
-          serviceId: `srv_${Date.now()}_1`,
-          laundryId: newLaundryId,
-          name: 'Cuci Setrika Kiloan (Reguler 3 Hari)',
-          price: 6000,
-          unit: 'kg',
-          estimateDays: 3,
-          createdAt: new Date().toISOString()
-        }
-      ];
-      defaultServices.forEach(srv => sandboxDb.addDoc('services', srv));
+      const defaultService: LaundryService = {
+        serviceId: `srv_${Date.now()}_1`,
+        laundryId: newLaundryId,
+        name: 'Cuci Setrika Kiloan (Reguler 3 Hari)',
+        price: 6000,
+        unit: 'kg',
+        estimateDays: 3,
+        createdAt: new Date().toISOString()
+      };
 
       user = {
         userId: newOwnerId,
@@ -418,14 +500,23 @@ export const laundryService = {
         isActive: true,
         createdAt: new Date().toISOString()
       };
-      sandboxDb.addDoc('users', user);
+
+      // Speculatively write back to Firestore synchronously & asynchronously
+      const userDoc = doc(libDb, 'users', newOwnerId);
+      const laundryDoc = doc(libDb, 'laundries', newLaundryId);
+      const srvDoc = doc(libDb, 'laundries', newLaundryId, 'services', defaultService.serviceId);
+
+      setDoc(userDoc, user).catch(e => handleFirestoreError(e, OperationType.WRITE, userDoc.path));
+      setDoc(laundryDoc, newLaundry).catch(e => handleFirestoreError(e, OperationType.WRITE, laundryDoc.path));
+      setDoc(srvDoc, defaultService).catch(e => handleFirestoreError(e, OperationType.WRITE, srvDoc.path));
     }
+
     laundryService.setSimulatedUser(user);
     return user;
   },
 
   loginInternalSimulated: (username: string): UserProfile | null => {
-    const users = sandboxDb.getCollection<UserProfile>('users');
+    const users = getUsersLocal();
     const user = users.find(u => u.username === username);
     if (user) {
       laundryService.setSimulatedUser(user);
@@ -436,15 +527,17 @@ export const laundryService = {
 
   logout: () => {
     laundryService.setSimulatedUser(null);
+    signOut(libAuth).catch(e => console.warn("SignOut action log:", e));
   },
 
   // --- LAUNDRY BUSINESS OPERATIONS ---
   getLaundries: (): Laundry[] => {
-    return sandboxDb.getCollection<Laundry>('laundries');
+    return getLaundriesLocal();
   },
 
   updateLaundryStatus: (laundryId: string, isActive: boolean) => {
-    sandboxDb.updateDoc('laundries', 'laundryId', laundryId, { isActive });
+    const laundryDoc = doc(libDb, 'laundries', laundryId);
+    updateDoc(laundryDoc, { isActive }).catch(e => handleFirestoreError(e, OperationType.UPDATE, laundryDoc.path));
   },
 
   createLaundryBySuperAdmin: (laundryName: string, ownerEmail: string, ownerName: string) => {
@@ -460,7 +553,6 @@ export const laundryService = {
       isActive: true,
       createdAt: new Date().toISOString()
     };
-    sandboxDb.addDoc('users', newOwner);
 
     const newLaundry: Laundry = {
       laundryId: laundryId,
@@ -471,9 +563,7 @@ export const laundryService = {
       isActive: true,
       createdAt: new Date().toISOString()
     };
-    sandboxDb.addDoc('laundries', newLaundry);
 
-    // Initial default service
     const defaultService: LaundryService = {
       serviceId: `srv_${Date.now()}`,
       laundryId: laundryId,
@@ -483,37 +573,59 @@ export const laundryService = {
       estimateDays: 3,
       createdAt: new Date().toISOString()
     };
-    sandboxDb.addDoc('services', defaultService);
+
+    const userDoc = doc(libDb, 'users', ownerId);
+    const laundryDoc = doc(libDb, 'laundries', laundryId);
+    const srvDoc = doc(libDb, 'laundries', laundryId, 'services', defaultService.serviceId);
+
+    setDoc(userDoc, newOwner).catch(e => handleFirestoreError(e, OperationType.CREATE, userDoc.path));
+    setDoc(laundryDoc, newLaundry).catch(e => handleFirestoreError(e, OperationType.CREATE, laundryDoc.path));
+    setDoc(srvDoc, defaultService).catch(e => handleFirestoreError(e, OperationType.CREATE, srvDoc.path));
 
     return { owner: newOwner, laundry: newLaundry };
   },
 
   // --- SERVICES OPERATIONS ---
   getServices: (laundryId: string): LaundryService[] => {
-    const all = sandboxDb.getCollection<LaundryService>('services');
-    return all.filter(s => s.laundryId === laundryId);
+    const services = getServicesLocal();
+    return services.filter(s => s.laundryId === laundryId);
   },
 
   addService: (service: Omit<LaundryService, 'serviceId' | 'createdAt'>): LaundryService => {
+    const serviceId = `srv_${Date.now()}`;
     const newService: LaundryService = {
       ...service,
-      serviceId: `srv_${Date.now()}`,
+      serviceId,
       createdAt: new Date().toISOString()
     };
-    return sandboxDb.addDoc('services', newService);
+
+    const srvDoc = doc(libDb, 'laundries', service.laundryId, 'services', serviceId);
+    setDoc(srvDoc, newService).catch(e => handleFirestoreError(e, OperationType.CREATE, srvDoc.path));
+
+    return newService;
   },
 
   updateService: (serviceId: string, updates: Partial<LaundryService>) => {
-    return sandboxDb.updateDoc('services', 'serviceId', serviceId, updates);
+    const services = getServicesLocal();
+    const service = services.find(s => s.serviceId === serviceId);
+    if (service) {
+      const srvDoc = doc(libDb, 'laundries', service.laundryId, 'services', serviceId);
+      updateDoc(srvDoc, updates).catch(e => handleFirestoreError(e, OperationType.UPDATE, srvDoc.path));
+    }
   },
 
   deleteService: (serviceId: string) => {
-    sandboxDb.deleteDoc('services', 'serviceId', serviceId);
+    const services = getServicesLocal();
+    const service = services.find(s => s.serviceId === serviceId);
+    if (service) {
+      const srvDoc = doc(libDb, 'laundries', service.laundryId, 'services', serviceId);
+      deleteDoc(srvDoc).catch(e => handleFirestoreError(e, OperationType.DELETE, srvDoc.path));
+    }
   },
 
   // --- STAFF ACCOUNTS OPERATIONS ---
   getLaundryStaff: (laundryId: string): UserProfile[] => {
-    const all = sandboxDb.getCollection<UserProfile>('users');
+    const all = getUsersLocal();
     return all.filter(u => u.laundryId === laundryId && (u.role === 'cashier' || u.role === 'employee'));
   },
 
@@ -528,70 +640,81 @@ export const laundryService = {
       isActive: true,
       createdAt: new Date().toISOString()
     };
-    return sandboxDb.addDoc('users', newStaff);
+
+    const userDoc = doc(libDb, 'users', staffId);
+    setDoc(userDoc, newStaff).catch(e => handleFirestoreError(e, OperationType.CREATE, userDoc.path));
+
+    return newStaff;
   },
 
   deleteStaffAccount: (userId: string) => {
-    sandboxDb.deleteDoc('users', 'userId', userId);
+    const userDoc = doc(libDb, 'users', userId);
+    deleteDoc(userDoc).catch(e => handleFirestoreError(e, OperationType.DELETE, userDoc.path));
   },
 
   // --- ORDERS OPERATIONS ---
   getOrders: (laundryId: string): LaundryOrder[] => {
-    const all = sandboxDb.getCollection<LaundryOrder>('orders');
+    const all = getOrdersLocal();
     return all.filter(o => o.laundryId === laundryId);
   },
 
   getOrderById: (orderId: string): LaundryOrder | null => {
-    return sandboxDb.getDoc<LaundryOrder>('orders', 'orderId', orderId);
+    const all = getOrdersLocal();
+    return all.find(o => o.orderId === orderId) || null;
   },
 
   getOrderByInvoice: (invoiceNo: string): LaundryOrder | null => {
-    const all = sandboxDb.getCollection<LaundryOrder>('orders');
+    const all = getOrdersLocal();
     return all.find(o => o.invoiceNo.toLowerCase() === invoiceNo.trim().toLowerCase()) || null;
   },
 
   createOrder: (order: Omit<LaundryOrder, 'orderId' | 'invoiceNo' | 'createdAt'>): LaundryOrder => {
-    // Auto-generate Invoice No
-    const orders = sandboxDb.getCollection<LaundryOrder>('orders');
+    const orders = getOrdersLocal();
     const year = new Date().getFullYear();
     const count = orders.filter(o => o.createdAt.startsWith(year.toString())).length + 1;
     const paddedCount = String(count).padStart(4, '0');
     const invoiceNo = `INV-${year}-${paddedCount}`;
+    const orderId = `ord_${Date.now()}`;
 
     const newOrder: LaundryOrder = {
       ...order,
-      orderId: `ord_${Date.now()}`,
+      orderId,
       invoiceNo,
       createdAt: new Date().toISOString()
     };
     
-    // Add to Orders
-    sandboxDb.addDoc('orders', newOrder);
+    // Save Order In Firestore
+    const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
+    setDoc(orderDoc, newOrder).catch(e => handleFirestoreError(e, OperationType.CREATE, orderDoc.path));
 
-    // Initial Order Progress log
+    // Save initial progress timeline entry
+    const progressId = `prg_${Date.now()}_init`;
     const initialProgress: OrderProgress = {
-      progressId: `prg_${Date.now()}_init`,
-      orderId: newOrder.orderId,
+      progressId,
+      orderId,
       status: 'diterima',
       description: `Selesai masuk order. Laundry ditimbang ${order.weight} ${order.unit} oleh kasir.`,
       updatedBy: order.cashierId,
       updatedByName: 'Staff Laundry',
       updatedAt: new Date().toISOString()
     };
-    sandboxDb.addDoc('progress', initialProgress);
+    const progressDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId, 'progress', progressId);
+    setDoc(progressDoc, initialProgress).catch(e => handleFirestoreError(e, OperationType.CREATE, progressDoc.path));
 
-    // If order was paid at creation, register payment transaction
+    // Save payment transactions if already paid at registration
     if (order.paymentStatus === 'paid') {
+      const paymentId = `pay_${Date.now()}`;
       const payment: LaundryPayment = {
-        paymentId: `pay_${Date.now()}`,
-        orderId: newOrder.orderId,
+        paymentId,
+        orderId,
         laundryId: order.laundryId,
         amount: order.totalPrice,
-        paymentMethod: 'cash', // Default to cash for initial paid
+        paymentMethod: 'cash',
         paymentDate: new Date().toISOString(),
         cashierId: order.cashierId
       };
-      sandboxDb.addDoc('payments', payment);
+      const paymentDoc = doc(libDb, 'laundries', order.laundryId, 'payments', paymentId);
+      setDoc(paymentDoc, payment).catch(e => handleFirestoreError(e, OperationType.CREATE, paymentDoc.path));
     }
 
     return newOrder;
@@ -604,16 +727,17 @@ export const laundryService = {
     updatedBy: string, 
     updatedByName: string
   ) => {
-    const order = sandboxDb.getDoc<LaundryOrder>('orders', 'orderId', orderId);
+    const orders = getOrdersLocal();
+    const order = orders.find(o => o.orderId === orderId);
     if (!order) return null;
 
-    // Update main order
-    const updated = sandboxDb.updateDoc('orders', 'orderId', orderId, { 
+    // Save Order Status Updates In Firestore
+    const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
+    updateDoc(orderDoc, { 
       laundryStatus: status,
       notes: notes || order.notes || ''
-    });
+    }).catch(e => handleFirestoreError(e, OperationType.UPDATE, orderDoc.path));
 
-    // Translate progress code to elegant Indonesian logs
     const statusDescMap: Record<LaundryStatus, string> = {
       diterima: 'Laundry telah diterima di outlet.',
       dicuci: 'Laundry masuk ke proses pencucian dan pembersihan.',
@@ -623,9 +747,9 @@ export const laundryService = {
       diambil: 'Laundry sudah diambil oleh pelanggan. Transaksi selesai sepenuhnya.'
     };
 
-    // Add progress timeline entry
+    const progressId = `prg_${Date.now()}_upd`;
     const progress: OrderProgress = {
-      progressId: `prg_${Date.now()}_upd`,
+      progressId,
       orderId,
       status,
       description: `${statusDescMap[status]} (Catatan: ${notes || 'Tidak ada catatan tambahan'})`,
@@ -633,21 +757,23 @@ export const laundryService = {
       updatedByName,
       updatedAt: new Date().toISOString()
     };
-    sandboxDb.addDoc('progress', progress);
+    const progressDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId, 'progress', progressId);
+    setDoc(progressDoc, progress).catch(e => handleFirestoreError(e, OperationType.CREATE, progressDoc.path));
 
-    return updated;
+    return { ...order, laundryStatus: status, notes: notes || order.notes || '' };
   },
 
   receivePayment: (orderId: string, amount: number, method: 'cash' | 'transfer', cashierId: string) => {
-    const order = sandboxDb.getDoc<LaundryOrder>('orders', 'orderId', orderId);
+    const orders = getOrdersLocal();
+    const order = orders.find(o => o.orderId === orderId);
     if (!order) return null;
 
-    // Update order paymentStatus
-    const updated = sandboxDb.updateDoc('orders', 'orderId', orderId, { paymentStatus: 'paid' });
+    const orderDoc = doc(libDb, 'laundries', order.laundryId, 'orders', orderId);
+    updateDoc(orderDoc, { paymentStatus: 'paid' }).catch(e => handleFirestoreError(e, OperationType.UPDATE, orderDoc.path));
 
-    // Register payment record
+    const paymentId = `pay_${Date.now()}`;
     const payment: LaundryPayment = {
-      paymentId: `pay_${Date.now()}`,
+      paymentId,
       orderId,
       laundryId: order.laundryId,
       amount,
@@ -655,21 +781,21 @@ export const laundryService = {
       paymentDate: new Date().toISOString(),
       cashierId
     };
-    sandboxDb.addDoc('payments', payment);
+    const paymentDoc = doc(libDb, 'laundries', order.laundryId, 'payments', paymentId);
+    setDoc(paymentDoc, payment).catch(e => handleFirestoreError(e, OperationType.CREATE, paymentDoc.path));
 
-    return updated;
+    return { ...order, paymentStatus: 'paid' as const };
   },
 
   getOrderProgress: (orderId: string): OrderProgress[] => {
-    const all = sandboxDb.getCollection<OrderProgress>('progress');
-    // Sort chronological (earliest first for timeline)
+    const all = getProgressLocal();
     return all
       .filter(p => p.orderId === orderId)
       .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
   },
 
   getPayments: (laundryId: string): LaundryPayment[] => {
-    const all = sandboxDb.getCollection<LaundryPayment>('payments');
+    const all = getPaymentsLocal();
     return all.filter(p => p.laundryId === laundryId);
   }
 };

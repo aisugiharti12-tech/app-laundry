@@ -42,8 +42,19 @@ export default function App() {
 
   // Loaded at boot
   React.useEffect(() => {
-    const active = laundryService.getCurrentSimulatedUser();
-    if (active) setCurrentUser(active);
+    // Check pathname routing for Vercel/production tracking view route integration
+    const path = window.location.pathname;
+    if (path.includes('/tracking/')) {
+      const parts = path.split('/tracking/');
+      const invoiceNo = parts[parts.length - 1];
+      if (invoiceNo && invoiceNo.trim()) {
+        localStorage.setItem('lnd_direct_track_invoice', invoiceNo.trim());
+        setCurrentTab('track');
+      }
+    } else {
+      const active = laundryService.getCurrentSimulatedUser();
+      if (active) setCurrentUser(active);
+    }
   }, []);
 
   const handleGoogleLogin = (e: React.FormEvent) => {
@@ -102,24 +113,24 @@ export default function App() {
       
       {/* FLOATING TOP DEVELOPMENT NOTIFICATION BAR */}
       <div className="bg-slate-900 text-white py-2.5 px-4 text-center text-xs flex flex-wrap items-center justify-center gap-3 border-b border-slate-800">
-        <span className="inline-flex items-center gap-1 bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/20 font-bold uppercase text-[9px] tracking-wider">
-          <Activity className="w-3.5 h-3.5" /> Demo Sandbox Mode
+        <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-450 px-2 py-0.5 rounded border border-emerald-500/20 font-bold uppercase text-[9px] tracking-wider animate-pulse">
+          <Activity className="w-3.5 h-3.5 text-emerald-450" /> Firebase Online Mode
         </span>
-        <p className="text-slate-350 font-medium">
-          Aplikasi berjalan di mode Sandbox Lokal. Kode siap dihubungkan 100% dengan database Firebase Anda.
+        <p className="text-slate-300 font-medium">
+          Aplikasi terhubung langsung 100% ke Database Firebase Firestore Aktif di Vercel Production.
         </p>
         <div className="flex gap-2">
           <button 
             onClick={() => setCurrentTab('guide')}
-            className="text-[10px] font-bold bg-amber-500 text-slate-950 px-2.5 py-1 rounded-md hover:bg-amber-400 transition"
+            className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md hover:bg-slate-700 transition border border-slate-700"
           >
-            Lihat Panduan Firebase
+            Sistem Metadata
           </button>
           <button 
             onClick={handleResetDemoDb}
-            className="text-[10px] font-bold bg-slate-800 hover:bg-slate-705 border border-slate-700 text-slate-300 px-2.5 py-1 rounded-md transition flex items-center gap-1"
+            className="text-[10px] font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-2.5 py-1 rounded-md transition flex items-center gap-1"
           >
-            <RefreshCcw className="w-3 h-3" /> Reset Demo
+            <RefreshCcw className="w-3 h-3" /> Reset Database
           </button>
         </div>
       </div>

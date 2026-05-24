@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { laundryService } from '../firebase';
 import { LaundryOrder, LaundryService as ServiceModel, PaymentStatus } from '../types';
+import QRCode from 'react-qr-code';
 
 interface CashierDashboardProps {
   currentLaundryId: string;
@@ -486,12 +487,12 @@ export default function CashierDashboard({ currentLaundryId, cashierId }: Cashie
                 <p className="font-sans text-[9px] text-slate-500 leading-relaxed max-w-[220px]">
                   Bisa dilacak mandiri di web dengan invoice ini atau scan koordinat QR. Terima kasih atas kepercayaan Anda!
                 </p>
-                <div className="mt-2.5 w-20 h-20 bg-slate-200 flex items-center justify-center p-1 rounded">
-                  <div className="grid grid-cols-4 gap-1 w-full h-full bg-white p-1">
-                    {[...Array(16)].map((_, i) => (
-                      <div key={i} className={`rounded-sm ${(i*9+13)%4===0 || i===0 || i===3 ? 'bg-slate-800':'bg-slate-200'}`} />
-                    ))}
-                  </div>
+                <div className="mt-2.5 p-2.5 bg-white border border-slate-105 rounded-xl shadow-xs flex items-center justify-center">
+                  <QRCode 
+                    value={`https://app-laundry-one.vercel.app/tracking/${viewInvoiceOrder.invoiceNo}`}
+                    size={84}
+                    level="H"
+                  />
                 </div>
                 <span className="font-sans font-bold text-[9px] text-slate-400 mt-2 font-mono">ID: {viewInvoiceOrder.orderId}</span>
               </div>

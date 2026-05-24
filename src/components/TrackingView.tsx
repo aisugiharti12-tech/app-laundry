@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { laundryService } from '../firebase';
 import { LaundryOrder, OrderProgress, LaundryStatus } from '../types';
+import QRCode from 'react-qr-code';
 
 export default function TrackingView() {
   const [searchVal, setSearchVal] = React.useState('');
@@ -160,15 +161,12 @@ export default function TrackingView() {
             {/* QR SIMULATOR POPUP */}
             {showQrSim && (
               <div className="p-6 bg-slate-50 border-b border-slate-100 flex flex-col items-center justify-center text-center">
-                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-inner mb-3">
-                  <div className="w-32 h-32 bg-slate-100 flex items-center justify-center rounded">
-                    {/* Simulated vector-like representation of simple QR */}
-                    <div className="grid grid-cols-4 gap-1 p-2 w-full h-full bg-white">
-                      {[...Array(16)].map((_, i) => (
-                        <div key={i} className={`rounded-sm ${(i * 7 + 11) % 3 === 0 || i === 0 || i === 3 || i === 12 || i === 15 ? 'bg-slate-800' : 'bg-slate-100'}`} />
-                      ))}
-                    </div>
-                  </div>
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs mb-3 flex items-center justify-center">
+                  <QRCode 
+                    value={`https://app-laundry-one.vercel.app/tracking/${order.invoiceNo}`}
+                    size={112}
+                    level="H"
+                  />
                 </div>
                 <p className="text-xs text-slate-600 font-medium max-w-xs">
                   Scan QR ini untuk langsung mengakses status order di handphone Anda secara mandiri.

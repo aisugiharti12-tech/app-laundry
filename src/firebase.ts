@@ -498,12 +498,19 @@ export const laundryService = {
       }
       
       const emailLower = email.toLowerCase();
-      const users = getUsersLocal();
-      let user = users.find(u => u.email === emailLower);
+      const realUid = result.user.uid;
       
-      if (!user) {
-        // Create user profile in Firestore
-        const newOwnerId = result.user.uid || `owner_${Date.now()}`;
+      // Look up user document in Firestore directly to see if they already exist
+      const userDocRef = doc(libDb, 'users', realUid);
+      const userSnap = await getDoc(userDocRef);
+      
+      let user: UserProfile;
+      
+      if (userSnap.exists()) {
+        console.log("Existing user profile found in Firestore:", userSnap.data());
+        user = userSnap.data() as UserProfile;
+      } else {
+        console.log("No user profile found, bootstrapping new owner profile...");
         const newLaundryId = `laundry_${Date.now()}`;
         
         const newLaundry: Laundry = {
@@ -511,7 +518,7 @@ export const laundryService = {
           name: 'Laundry Saya',
           address: 'Alamat Laundry Belum Diisi',
           phone: '08123456789',
-          ownerId: newOwnerId,
+          ownerId: realUid,
           isActive: true,
           createdAt: new Date().toISOString()
         };
@@ -527,8 +534,8 @@ export const laundryService = {
         };
 
         user = {
-          userId: newOwnerId,
-          email: emailLower,
+          userId: realUid,
+          email: email, // Keep exact casing from Google Auth token to match request.auth.token.email byte-for-byte
           name: result.user.displayName || email.split('@')[0],
           role: emailLower === 'aisugiharti12@admin.smp.belajar.id' ? 'super_admin' : 'owner',
           laundryId: newLaundryId,
@@ -536,14 +543,18 @@ export const laundryService = {
           createdAt: new Date().toISOString()
         };
 
-        // Write to Firestore immediately
-        const userDoc = doc(libDb, 'users', newOwnerId);
+        // Write to Firestore immediately with structured error capture
+        const userDoc = doc(libDb, 'users', realUid);
         const laundryDoc = doc(libDb, 'laundries', newLaundryId);
         const srvDoc = doc(libDb, 'laundries', newLaundryId, 'services', defaultService.serviceId);
 
-        await setDoc(userDoc, user);
-        await setDoc(laundryDoc, newLaundry);
-        await setDoc(srvDoc, defaultService);
+        try {
+          await setDoc(userDoc, user);
+          await setDoc(laundryDoc, newLaundry);
+          await setDoc(srvDoc, defaultService);
+        } catch (bootstrapError) {
+          handleFirestoreError(bootstrapError, OperationType.CREATE, `bootstrap_user_${realUid}`);
+        }
       }
 
       laundryService.setSimulatedUser(user);

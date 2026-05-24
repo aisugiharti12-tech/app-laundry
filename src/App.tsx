@@ -19,7 +19,8 @@ import {
   Layers,
   ChevronRight
 } from 'lucide-react';
-import { laundryService, useRealFirebase, startFirebaseSync, clearFirebaseSubscriptions } from './firebase';
+import { laundryService, useRealFirebase, startFirebaseSync, clearFirebaseSubscriptions, auth as libAuth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { UserProfile, UserRole } from './types';
 
 // Importing Dashboard sub-components
@@ -60,6 +61,37 @@ export default function App() {
     }
   }, []);
 
+  // Real-time Firebase Auth session restoration listener hook
+  React.useEffect(() => {
+    if (!useRealFirebase) return;
+
+    // Listen to Firebase Auth state events
+    const unsubscribe = onAuthStateChanged(libAuth, async (firebaseUser) => {
+      if (firebaseUser) {
+        console.log("Firebase Auth detected authenticated user:", firebaseUser.email);
+        try {
+          const profile = await laundryService.getOrCreateProfileForFirebaseUser(firebaseUser);
+          setCurrentUser(profile);
+          if (currentTab === 'home') {
+            setCurrentTab('dashboard');
+          }
+        } catch (err) {
+          console.error("Failed to restore Firebase profile automatically:", err);
+        }
+      } else {
+        // Sign out locally if logged out from Firebase Auth
+        const localUser = laundryService.getCurrentSimulatedUser();
+        if (localUser && (localUser.role === 'owner' || localUser.role === 'super_admin')) {
+          laundryService.setSimulatedUser(null);
+          setCurrentUser(null);
+          setCurrentTab('home');
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentTab]);
+
   // Context-aware secure listener synchronization hook
   React.useEffect(() => {
     if (currentUser) {
@@ -79,7 +111,29 @@ export default function App() {
       setCurrentUser(profile);
       setCurrentTab('dashboard');
     } catch (e: any) {
-      console.warn("Real Google Auth failed or closed:", e);
+      console.warn("Real Google Auth caught error:", e);
+      
+      const errCode = e.code || '';
+      const errMsg = e.message || '';
+      const isPopupInterrupted = 
+        errCode === 'auth/cancelled-popup-request' || 
+        errCode === 'auth/popup-closed-by-user' || 
+        errMsg.includes('cancelled-popup-request') || 
+        errMsg.includes('popup-closed-by-user');
+
+      if (isPopupInterrupted) {
+        // If popup was cancelled/interrupted (common inside AI Studio live sandboxed iframe preview), 
+        // wait briefly to let onAuthStateChanged receive the user and write back local state.
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const active = laundryService.getCurrentSimulatedUser();
+        if (active) {
+          console.log("Iframe popup reported closed, but Firebase Auth successfully authenticated the user. Proceeding to Dashboard...");
+          setCurrentUser(active);
+          setCurrentTab('dashboard');
+          return;
+        }
+      }
+
       setLoginError(e.message || 'Gagal masuk dengan Google. Pastikan domain popup telah diizinkan di Firebase Console > Authentication.');
     }
   };

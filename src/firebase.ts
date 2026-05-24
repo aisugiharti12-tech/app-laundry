@@ -522,77 +522,81 @@ export const laundryService = {
   loginGoogleReal: async (): Promise<UserProfile> => {
     try {
       const result = await signInWithPopup(libAuth, googleProvider);
-      const email = result.user.email;
-      if (!email) {
-        throw new Error("Gagal mengambil email dari akun Google.");
-      }
-      
-      const emailLower = email.toLowerCase();
-      const realUid = result.user.uid;
-      
-      // Look up user document in Firestore directly to see if they already exist
-      const userDocRef = doc(libDb, 'users', realUid);
-      const userSnap = await getDoc(userDocRef);
-      
-      let user: UserProfile;
-      
-      if (userSnap.exists()) {
-        console.log("Existing user profile found in Firestore:", userSnap.data());
-        user = userSnap.data() as UserProfile;
-      } else {
-        console.log("No user profile found, bootstrapping new owner profile...");
-        const newLaundryId = `laundry_${Date.now()}`;
-        
-        const newLaundry: Laundry = {
-          laundryId: newLaundryId,
-          name: 'Laundry Saya',
-          address: 'Alamat Laundry Belum Diisi',
-          phone: '08123456789',
-          ownerId: realUid,
-          isActive: true,
-          createdAt: new Date().toISOString()
-        };
-
-        const defaultService: LaundryService = {
-          serviceId: `srv_${Date.now()}_1`,
-          laundryId: newLaundryId,
-          name: 'Cuci Setrika Kiloan (Reguler 3 Hari)',
-          price: 6000,
-          unit: 'kg',
-          estimateDays: 3,
-          createdAt: new Date().toISOString()
-        };
-
-        user = {
-          userId: realUid,
-          email: email, // Keep exact casing from Google Auth token to match request.auth.token.email byte-for-byte
-          name: result.user.displayName || email.split('@')[0],
-          role: emailLower === 'aisugiharti12@admin.smp.belajar.id' ? 'super_admin' : 'owner',
-          laundryId: newLaundryId,
-          isActive: true,
-          createdAt: new Date().toISOString()
-        };
-
-        // Write to Firestore immediately with structured error capture
-        const userDoc = doc(libDb, 'users', realUid);
-        const laundryDoc = doc(libDb, 'laundries', newLaundryId);
-        const srvDoc = doc(libDb, 'laundries', newLaundryId, 'services', defaultService.serviceId);
-
-        try {
-          await setDoc(userDoc, user);
-          await setDoc(laundryDoc, newLaundry);
-          await setDoc(srvDoc, defaultService);
-        } catch (bootstrapError) {
-          handleFirestoreError(bootstrapError, OperationType.CREATE, `bootstrap_user_${realUid}`);
-        }
-      }
-
-      laundryService.setSimulatedUser(user);
-      return user;
+      return await laundryService.getOrCreateProfileForFirebaseUser(result.user);
     } catch (error) {
       console.error("Firebase Login Real Auth failed:", error);
       throw error;
     }
+  },
+
+  getOrCreateProfileForFirebaseUser: async (firebaseUser: any): Promise<UserProfile> => {
+    const email = firebaseUser.email;
+    if (!email) {
+      throw new Error("Gagal mengambil email dari akun Google.");
+    }
+    
+    const emailLower = email.toLowerCase();
+    const realUid = firebaseUser.uid;
+    
+    // Look up user document in Firestore directly to see if they already exist
+    const userDocRef = doc(libDb, 'users', realUid);
+    const userSnap = await getDoc(userDocRef);
+    
+    let user: UserProfile;
+    
+    if (userSnap.exists()) {
+      console.log("Existing user profile found in Firestore:", userSnap.data());
+      user = userSnap.data() as UserProfile;
+    } else {
+      console.log("No user profile found, bootstrapping new owner profile...");
+      const newLaundryId = `laundry_${Date.now()}`;
+      
+      const newLaundry: Laundry = {
+        laundryId: newLaundryId,
+        name: 'Laundry Saya',
+        address: 'Alamat Laundry Belum Diisi',
+        phone: '08123456789',
+        ownerId: realUid,
+        isActive: true,
+        createdAt: new Date().toISOString()
+      };
+
+      const defaultService: LaundryService = {
+        serviceId: `srv_${Date.now()}_1`,
+        laundryId: newLaundryId,
+        name: 'Cuci Setrika Kiloan (Reguler 3 Hari)',
+        price: 6000,
+        unit: 'kg',
+        estimateDays: 3,
+        createdAt: new Date().toISOString()
+      };
+
+      user = {
+        userId: realUid,
+        email: email, // Keep exact casing from Google Auth token to match request.auth.token.email byte-for-byte
+        name: firebaseUser.displayName || email.split('@')[0],
+        role: emailLower === 'aisugiharti12@admin.smp.belajar.id' ? 'super_admin' : 'owner',
+        laundryId: newLaundryId,
+        isActive: true,
+        createdAt: new Date().toISOString()
+      };
+
+      // Write to Firestore immediately with structured error capture
+      const userDoc = doc(libDb, 'users', realUid);
+      const laundryDoc = doc(libDb, 'laundries', newLaundryId);
+      const srvDoc = doc(libDb, 'laundries', newLaundryId, 'services', defaultService.serviceId);
+
+      try {
+        await setDoc(userDoc, user);
+        await setDoc(laundryDoc, newLaundry);
+        await setDoc(srvDoc, defaultService);
+      } catch (bootstrapError) {
+        handleFirestoreError(bootstrapError, OperationType.CREATE, `bootstrap_user_${realUid}`);
+      }
+    }
+
+    laundryService.setSimulatedUser(user);
+    return user;
   },
 
   loginGoogleSimulated: (email: string): UserProfile => {

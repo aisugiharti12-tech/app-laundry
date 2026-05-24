@@ -15,10 +15,11 @@ service cloud.firestore {
       return getUser(request.auth.uid);
     }
 
+    // Helpers for checking admin based on hardcoded boot email or existing document
     function isSuperAdmin() {
       return isSignedIn() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getAuthUser().role == 'super_admin';
+        (request.auth.token.email.toLowerCase() == 'aisugiharti12@admin.smp.belajar.id' || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getAuthUser().role == 'super_admin'));
     }
 
     function isLaundryOwner(laundryId) {
@@ -47,6 +48,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // --- INTEGRATION CONNECTIVITY TEST COLLECTION ---
+    match /test/connection {
+      allow read: if true;
+    }
+
     // --- PUBLIC ORDERS BY INVOICE MAP COLLECTION ---
     match /orders_by_invoice/{invoiceNo} {
       // Public tracking page can get any order by its invoice number
@@ -69,17 +75,32 @@ service cloud.firestore {
       // Owners can read profiles of users belonging to their laundry.
       allow read: if isSignedIn() && (
         request.auth.uid == userId || 
-        getAuthUser().role == 'super_admin' ||
-        (getAuthUser().role == 'owner' && getAuthUser().laundryId == resource.data.laundryId)
+        isSuperAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         getAuthUser().role == 'owner' && 
+         getAuthUser().laundryId == resource.data.laundryId)
       );
 
       // Super Admins can write all users. Owners can create cashier/employee accounts for their laundry.
-      allow create, update: if isSignedIn() && (
-        getAuthUser().role == 'super_admin' ||
-        (getAuthUser().role == 'owner' && request.resource.data.laundryId == getAuthUser().laundryId)
+      // Additionally, allow new users to bootstrap their own user profile document.
+      allow create: if isSignedIn() && (
+        (request.auth.uid == userId && 
+         request.resource.data.role == (request.auth.token.email.toLowerCase() == 'aisugiharti12@admin.smp.belajar.id' ? 'super_admin' : 'owner') &&
+         request.resource.data.email == request.auth.token.email.toLowerCase()) ||
+        isSuperAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         getAuthUser().role == 'owner' && 
+         request.resource.data.laundryId == getAuthUser().laundryId)
+      );
+
+      allow update: if isSignedIn() && (
+        isSuperAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         getAuthUser().role == 'owner' && 
+         request.resource.data.laundryId == getAuthUser().laundryId)
       );
       
-      allow delete: if isSignedIn() && getAuthUser().role == 'super_admin';
+      allow delete: if isSignedIn() && isSuperAdmin();
     }
 
     // --- LAUNDRIES COLLECTION ---
@@ -87,15 +108,18 @@ service cloud.firestore {
       // Anyone can read laundry profiles (for tracking & public services)
       allow read: if true;
 
-      // Only Super Admin can create or deactivate laundries
-      allow create: if isSignedIn() && getAuthUser().role == 'super_admin';
+      // Only Super Admin or a user registering their own laundry can create
+      allow create: if isSignedIn() && (
+        isSuperAdmin() ||
+        request.resource.data.ownerId == request.auth.uid
+      );
       
       allow update: if isSignedIn() && (
-        getAuthUser().role == 'super_admin' || 
+        isSuperAdmin() || 
         isLaundryOwner(laundryId)
       );
       
-      allow delete: if isSignedIn() && getAuthUser().role == 'super_admin';
+      allow delete: if isSignedIn() && isSuperAdmin();
 
       // --- SERVICES SUB-COLLECTION ---
       match /services/{serviceId} {

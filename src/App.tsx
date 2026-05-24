@@ -40,6 +40,7 @@ export default function App() {
   const [loginMethod, setLoginMethod] = React.useState<'google' | 'internal'>('google');
   const [usernameInput, setUsernameInput] = React.useState('');
   const [loginError, setLoginError] = React.useState('');
+  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
 
   // Loaded at boot
   React.useEffect(() => {
@@ -105,6 +106,8 @@ export default function App() {
   }, [currentUser]);
 
   const handleGoogleLoginReal = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
     setLoginError('');
     try {
       const profile = await laundryService.loginGoogleReal();
@@ -118,23 +121,31 @@ export default function App() {
       const isPopupInterrupted = 
         errCode === 'auth/cancelled-popup-request' || 
         errCode === 'auth/popup-closed-by-user' || 
+        errCode === 'auth/popup-blocked' ||
         errMsg.includes('cancelled-popup-request') || 
-        errMsg.includes('popup-closed-by-user');
+        errMsg.includes('popup-closed-by-user') ||
+        errMsg.includes('popup-blocked') ||
+        errMsg.includes('Pending promise was never set');
 
-      if (isPopupInterrupted) {
-        // If popup was cancelled/interrupted (common inside AI Studio live sandboxed iframe preview), 
-        // wait briefly to let onAuthStateChanged receive the user and write back local state.
-        await new Promise(resolve => setTimeout(resolve, 800));
-        const active = laundryService.getCurrentSimulatedUser();
-        if (active) {
-          console.log("Iframe popup reported closed, but Firebase Auth successfully authenticated the user. Proceeding to Dashboard...");
-          setCurrentUser(active);
-          setCurrentTab('dashboard');
-          return;
-        }
+      // Regardless of the reported error, give a short grace period for Firebase block states
+      // to resolve and onAuthStateChanged to sync the session state from IndexedDB
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const active = laundryService.getCurrentSimulatedUser();
+      if (active) {
+        console.log("Iframe error caught, but session successfully initialized in background. Proceeding to Dashboard...");
+        setCurrentUser(active);
+        setCurrentTab('dashboard');
+        setIsLoggingIn(false);
+        return;
       }
 
-      setLoginError(e.message || 'Gagal masuk dengan Google. Pastikan domain popup telah diizinkan di Firebase Console > Authentication.');
+      if (isPopupInterrupted) {
+        setLoginError('Proses login terputus atau pop-up diblokir oleh browser. Jika Anda menggunakan AI Studio, silakan klik tombol "Buka Aplikasi Di Tab Baru" di pojok kanan atas preview untuk login dengan lancar.');
+      } else {
+        setLoginError(e.message || 'Gagal masuk dengan Google. Pastikan domain popup telah diizinkan di Firebase Console > Authentication.');
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -427,10 +438,27 @@ export default function App() {
                       <button 
                         type="button"
                         onClick={handleGoogleLoginReal}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-500/10 cursor-pointer"
+                        disabled={isLoggingIn}
+                        className={`w-full text-white font-black py-4 rounded-xl transition text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-500/10 ${
+                          isLoggingIn 
+                            ? 'bg-blue-450 opacity-75 cursor-wait' 
+                            : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                        }`}
                       >
-                        <span className="w-5 h-5 bg-white text-blue-600 font-extrabold flex items-center justify-center rounded-lg text-xs">G</span>
-                        Masuk Via Google (Akun Real)
+                        {isLoggingIn ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Menghubungkan ke Google...
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-5 h-5 bg-white text-blue-600 font-extrabold flex items-center justify-center rounded-lg text-xs">G</span>
+                            Masuk Via Google (Akun Real)
+                          </>
+                        )}
                       </button>
                     </div>
                   ) : (

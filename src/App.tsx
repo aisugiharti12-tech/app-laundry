@@ -29,6 +29,7 @@ import OwnerDashboard from './components/OwnerDashboard';
 import CashierDashboard from './components/CashierDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
 import SetupGuide from './components/SetupGuide';
+import UserAvatar from './components/UserAvatar';
 
 export default function App() {
   const [currentTab, setCurrentTab] = React.useState<'home' | 'track' | 'dashboard' | 'guide'>('home');
@@ -36,7 +37,6 @@ export default function App() {
 
   // Authentication Forms State
   const [loginMethod, setLoginMethod] = React.useState<'google' | 'internal'>('google');
-  const [emailInput, setEmailInput] = React.useState('');
   const [usernameInput, setUsernameInput] = React.useState('');
   const [loginError, setLoginError] = React.useState('');
 
@@ -82,26 +82,6 @@ export default function App() {
       console.warn("Real Google Auth failed or closed:", e);
       setLoginError(e.message || 'Gagal masuk dengan Google. Pastikan domain popup telah diizinkan di Firebase Console > Authentication.');
     }
-  };
-
-  const handleGoogleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    if (!emailInput.trim()) {
-      setLoginError('Masukkan email Gmail aktif.');
-      return;
-    }
-
-    const pattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!pattern.test(emailInput.trim())) {
-      setLoginError('Format email tidak valid.');
-      return;
-    }
-
-    const profile = laundryService.loginGoogleSimulated(emailInput.trim().toLowerCase());
-    setCurrentUser(profile);
-    setCurrentTab('dashboard');
-    setEmailInput('');
   };
 
   const handleInternalLogin = async (e: React.FormEvent) => {
@@ -217,10 +197,10 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => setCurrentTab('dashboard')}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2 rounded-xl transition"
+                  className="hover:opacity-90 transition rounded-full focus:outline-none"
                   title="Ke Dashboard"
                 >
-                  <User className="w-4 h-4" />
+                  <UserAvatar name={currentUser.name} photoURL={currentUser.photoURL} size="sm" />
                 </button>
                 <button 
                   onClick={handleLogout}
@@ -286,18 +266,18 @@ export default function App() {
 
               {/* FLOATING ROLES CARD PREVIEW */}
               <div className="bg-gradient-to-tr from-slate-900 to-slate-950 text-white rounded-3xl p-8 border border-slate-800 shadow-2xl relative overflow-hidden">
-                <div className="mb-4 p-3 bg-amber-500/10 text-amber-300 rounded-xl text-xs border border-amber-500/20 font-bold leading-relaxed">
-                  📢 PENTING: Gunakan tombol <span className="text-white underline">"Masuk Via Google (Akun Real)"</span> di halaman login untuk masuk dengan akun Google Anda sendiri. Ini akan mendaftarkan laundry Anda langsung ke database Firestore Anda sendiri secara aman dan permanen!
+                <div className="mb-4 p-3 bg-blue-500/10 text-blue-300 rounded-xl text-xs border border-blue-500/20 font-bold leading-relaxed">
+                  🔒 KEAMANAN DATA: Akun administratif (Super Admin & Owner) **WAJIB** masuk menggunakan Google Auth Rill untuk menjamin kenyamanan & keamanan database 100%. Akun karyawan (Kasir & Pegawai) menggunakan sistem internal.
                 </div>
-                <h3 className="font-extrabold text-white text-lg mb-4">Uji Coba Cepat Peran Pengguna (Multi-Role)</h3>
-                <p className="text-slate-400 text-xs mb-6">Nikmati kemudahan simulasi dengan akun instan di bawah ini pada halaman login:</p>
+                <h3 className="font-extrabold text-white text-lg mb-4">Akses & Manajemen Peran Pengguna</h3>
+                <p className="text-slate-400 text-xs mb-6">Berikut adalah panduan peran dan cara autentikasi resmi:</p>
                 
                 <div className="space-y-4">
                   {[
-                    { role: 'Super Admin', task: 'Melihat statistik global & buat laundry pemilik baru.', user: 'aisugiharti12@admin.smp.belajar.id' },
-                    { role: 'Owner Laundry / Admin', task: 'Mengatur harga jasa & daftarkan akun karyawan.', user: 'owner@laundry.com' },
-                    { role: 'Kasir Laundry', task: 'Input laundry ditimbang, proses kasir & cetak struk thermal.', user: 'kasir001' },
-                    { role: 'Pegawai Cuci / Lapangan', task: 'Operator cuci-timbang yang update progres basah-kering.', user: 'pegawai001' }
+                    { role: 'Super Admin', task: 'Melihat statistik global & buat laundry pemilik baru.', user: 'Real Google Auth (aisugiharti12@admin.smp.belajar.id)' },
+                    { role: 'Owner Laundry / Admin', task: 'Mengatur harga jasa & daftarkan akun karyawan.', user: 'Real Google Auth (Gunakan Akun Google Anda)' },
+                    { role: 'Kasir Laundry', task: 'Input laundry ditimbang, proses kasir & cetak struk thermal.', user: 'Login Internal (e.g. @kasirtest atau kasir001)' },
+                    { role: 'Pegawai Cuci / Lapangan', task: 'Operator cuci-timbang yang update progres basah-kering.', user: 'Login Internal (e.g. @pegawaitest atau pegawai001)' }
                   ].map((item, i) => (
                     <div key={i} className="flex gap-4 items-start bg-slate-900/60 p-4 border border-slate-800 rounded-2xl">
                       <div className="bg-blue-500/10 text-blue-400 p-2 rounded-xl text-xs font-bold w-10 text-center flex-shrink-0">
@@ -306,7 +286,7 @@ export default function App() {
                       <div>
                         <h4 className="font-extrabold text-slate-200 text-sm">{item.role}</h4>
                         <p className="text-[11px] text-slate-400 mt-0.5">{item.task}</p>
-                        <p className="text-[10px] font-mono text-blue-400 font-bold mt-1 bg-blue-950/40 w-fit px-2 py-0.5 rounded border border-blue-500/20">Login: {item.user}</p>
+                        <p className="text-[10px] font-mono text-blue-400 font-bold mt-1 bg-blue-950/40 w-fit px-2 py-0.5 rounded border border-blue-500/20">{item.user}</p>
                       </div>
                     </div>
                   ))}
@@ -384,61 +364,20 @@ export default function App() {
                   {/* FORM RENDER: EMAIL ACCREDITED FOR PLATFORM OR OWNER */}
                   {loginMethod === 'google' ? (
                     <div className="space-y-4">
+                      <div className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-2xl text-xs space-y-2 leading-relaxed">
+                        <p className="font-extrabold text-emerald-900">🛡️ AUTENTIKASI AMAN:</p>
+                        <p>Platform mewajibkan seluruh pemilik laundry (Owner) dan administrator utama (Super Admin) untuk masuk melalui validasi Google resmi guna melindungi data sensitif seperti omset, transaksi, dan data rahasia staf.</p>
+                      </div>
+
                       {/* REAL GOOGLE AUTH POPUP BUTTON */}
                       <button 
                         type="button"
                         onClick={handleGoogleLoginReal}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl transition text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-500/10"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition text-sm flex items-center justify-center gap-2.5 shadow-md shadow-blue-500/10 cursor-pointer"
                       >
                         <span className="w-5 h-5 bg-white text-blue-600 font-extrabold flex items-center justify-center rounded-lg text-xs">G</span>
                         Masuk Via Google (Akun Real)
                       </button>
-
-                      {/* SEPARATOR */}
-                      <div className="flex items-center gap-2 my-4">
-                        <div className="h-px bg-slate-200 flex-grow" />
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Atau Lewat Simulasi Sandbox</span>
-                        <div className="h-px bg-slate-200 flex-grow" />
-                      </div>
-
-                      {/* SIMULATION FORM */}
-                      <form onSubmit={handleGoogleLogin} className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Alamat Email Owner / Admin (Simulasi)</label>
-                          <input 
-                            type="email"
-                            placeholder="Ketik email, contoh: owner@laundry.com"
-                            value={emailInput}
-                            onChange={(e) => setEmailInput(e.target.value)}
-                            required
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <div className="mt-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1.5">
-                            <p className="text-[10px] text-blue-755 font-bold uppercase tracking-wider">Metode Demo Email Shortcut:</p>
-                            <button 
-                              type="button"
-                              onClick={() => setEmailInput('aisugiharti12@admin.smp.belajar.id')}
-                              className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
-                            >
-                              &bull; aisugiharti12@admin.smp.belajar.id (Super Admin)
-                            </button>
-                            <button 
-                              type="button"
-                              onClick={() => setEmailInput('owner@laundry.com')}
-                              className="text-[10px] text-blue-600 block hover:underline font-bold text-left"
-                            >
-                              &bull; owner@laundry.com (Hj. Sugiharti - Owner Clean & Fresh)
-                            </button>
-                          </div>
-                        </div>
-
-                        <button 
-                          type="submit"
-                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl transition text-xs flex items-center justify-center gap-2 shadow-sm"
-                        >
-                          Simulasi Dengan Email Di Atas
-                        </button>
-                      </form>
                     </div>
                   ) : (
                     /* FORM RENDER: INTERNAL LOGIN FROM USERNAME */
@@ -490,9 +429,7 @@ export default function App() {
                 {/* ROLE BANNER */}
                 <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-wrap justify-between items-center gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="bg-blue-500 text-white p-2 rounded-xl">
-                      <User className="w-5 h-5" />
-                    </div>
+                    <UserAvatar name={currentUser.name} photoURL={currentUser.photoURL} size="md" />
                     <div>
                       <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">LOGIN STATUS RESMI</p>
                       <h3 className="text-sm font-bold text-white flex items-center gap-1.5 capitalize">

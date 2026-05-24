@@ -14,6 +14,7 @@ export interface UserProfile {
   laundryId?: string; // null for super_admin
   createdAt: string;
   isActive: boolean;
+  photoURL?: string;
 }
 
 export interface Laundry {

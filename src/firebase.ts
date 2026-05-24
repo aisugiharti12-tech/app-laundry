@@ -690,6 +690,69 @@ export const laundryService = {
     updateDoc(laundryDoc, { isActive }).catch(e => handleFirestoreError(e, OperationType.UPDATE, laundryDoc.path));
   },
 
+  updateLaundryDetails: async (laundryId: string, name: string, address: string, phone: string): Promise<void> => {
+    const cached = cache_laundries.map(lnd => {
+      if (lnd.laundryId === laundryId) {
+        return { ...lnd, name, address, phone };
+      }
+      return lnd;
+    });
+    cache_laundries = cached;
+    localStorage.setItem('lnd_laundries', JSON.stringify(cached));
+    
+    if (useRealFirebase) {
+      try {
+        const laundryDoc = doc(libDb, 'laundries', laundryId);
+        await updateDoc(laundryDoc, { name, address, phone });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `laundries/${laundryId}`);
+        throw e;
+      }
+    }
+    notifyStateChange();
+  },
+
+  updateUserProfile: async (userId: string, name: string, photoURL?: string): Promise<UserProfile> => {
+    const cached = cache_users.map(u => {
+      if (u.userId === userId) {
+        return { ...u, name, photoURL };
+      }
+      return u;
+    });
+    cache_users = cached;
+    localStorage.setItem('lnd_users', JSON.stringify(cached));
+
+    const currentSim = laundryService.getCurrentSimulatedUser();
+    let updatedUser: UserProfile | null = null;
+    if (currentSim && currentSim.userId === userId) {
+      updatedUser = { ...currentSim, name, photoURL };
+      laundryService.setSimulatedUser(updatedUser);
+    }
+    
+    if (useRealFirebase) {
+      try {
+        const userDoc = doc(libDb, 'users', userId);
+        const dataToUpdate: any = { name };
+        if (photoURL !== undefined) {
+          dataToUpdate.photoURL = photoURL;
+        }
+        await updateDoc(userDoc, dataToUpdate);
+        
+        const snap = await getDoc(userDoc);
+        if (snap.exists() && currentSim && currentSim.userId === userId) {
+          updatedUser = snap.data() as UserProfile;
+          laundryService.setSimulatedUser(updatedUser);
+        }
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+        throw e;
+      }
+    }
+    
+    notifyStateChange();
+    return updatedUser || { userId, name, photoURL, role: 'owner', createdAt: new Date().toISOString(), isActive: true };
+  },
+
   createLaundryBySuperAdmin: (laundryName: string, ownerEmail: string, ownerName: string) => {
     const ownerId = `owner_${Date.now()}`;
     const laundryId = `laundry_${Date.now()}`;

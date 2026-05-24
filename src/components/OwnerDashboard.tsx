@@ -20,13 +20,14 @@ import {
 } from 'lucide-react';
 import { laundryService } from '../firebase';
 import { Laundry, LaundryService as ServiceModel, UserProfile, LaundryOrder } from '../types';
+import UserAvatar from './UserAvatar';
 
 interface OwnerDashboardProps {
   currentLaundryId: string;
 }
 
 export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps) {
-  const [activeTab, setActiveTab] = React.useState<'summary' | 'services' | 'staff' | 'orders'>('summary');
+  const [activeTab, setActiveTab] = React.useState<'summary' | 'services' | 'staff' | 'orders' | 'settings'>('summary');
   
   // Data States
   const [laundry, setLaundry] = React.useState<Laundry | null>(null);
@@ -45,6 +46,38 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
   const [staffUsername, setStaffUsername] = React.useState('');
   const [staffRole, setStaffRole] = React.useState<'cashier' | 'employee'>('employee');
   const [staffError, setStaffError] = React.useState('');
+
+  // Outlet Information Edit States
+  const [outletName, setOutletName] = React.useState('');
+  const [outletAddress, setOutletAddress] = React.useState('');
+  const [outletPhone, setOutletPhone] = React.useState('');
+  const [outletSuccess, setOutletSuccess] = React.useState('');
+  const [outletError, setOutletError] = React.useState('');
+
+  // Owner Personal Profile Edit States
+  const [profileName, setProfileName] = React.useState('');
+  const [profilePhoto, setProfilePhoto] = React.useState('');
+  const [profileSuccess, setProfileSuccess] = React.useState('');
+  const [profileError, setProfileError] = React.useState('');
+
+  const currentUser = laundryService.getCurrentSimulatedUser();
+
+  // Guard changes on laundry fields securely using reactive effect
+  React.useEffect(() => {
+    if (laundry) {
+      setOutletName(laundry.name);
+      setOutletAddress(laundry.address);
+      setOutletPhone(laundry.phone);
+    }
+  }, [laundry?.laundryId, laundry?.name, laundry?.address, laundry?.phone]);
+
+  // Guard changes on user fields securely using reactive effect
+  React.useEffect(() => {
+    if (currentUser) {
+      setProfileName(currentUser.name);
+      setProfilePhoto(currentUser.photoURL || '');
+    }
+  }, [currentUser?.userId]);
 
   const loadAllData = () => {
     // 1. Load laundry information
@@ -139,6 +172,41 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
     loadAllData();
   };
 
+  const handleUpdateOutlet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOutletSuccess('');
+    setOutletError('');
+    if (!outletName.trim() || !outletAddress.trim() || !outletPhone.trim()) {
+      setOutletError('Mohon isi semua data outlet laundry.');
+      return;
+    }
+    try {
+      await laundryService.updateLaundryDetails(currentLaundryId, outletName.trim(), outletAddress.trim(), outletPhone.trim());
+      setOutletSuccess('Sukses! Informasi outlet laundry berhasil diperbarui.');
+      setTimeout(() => setOutletSuccess(''), 4000);
+    } catch (err: any) {
+      setOutletError(err.message || 'Gagal menyimpan perubahan.');
+    }
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileSuccess('');
+    setProfileError('');
+    if (!profileName.trim()) {
+      setProfileError('Nama lengkap tidak boleh kosong.');
+      return;
+    }
+    if (!currentUser) return;
+    try {
+      await laundryService.updateUserProfile(currentUser.userId, profileName.trim(), profilePhoto.trim());
+      setProfileSuccess('Sukses! Profil pribadi berhasil diperbarui.');
+      setTimeout(() => setProfileSuccess(''), 4000);
+    } catch (err: any) {
+      setProfileError(err.message || 'Gagal menyimpan profil.');
+    }
+  };
+
   // Calculation of Stats
   const revenueTotal = orders
     .filter(o => o.paymentStatus === 'paid')
@@ -211,6 +279,17 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
         >
           <Users className="w-4 h-4" />
           Kelola Akses Karyawan
+        </button>
+        <button 
+          onClick={() => setActiveTab('settings')}
+          className={`flex items-center gap-2 px-5 py-3 font-semibold text-sm transition-all flex-shrink-0 ${
+            activeTab === 'settings' 
+              ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          Pengaturan Outlet & Profil
         </button>
       </div>
 
@@ -389,16 +468,19 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
             <div className="divide-y divide-slate-100">
               {staff.map(member => (
                 <div key={member.userId} className="p-5 flex items-center justify-between hover:bg-slate-50 transition">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">Username: <span className="font-mono bg-slate-100 text-slate-700 px-1 py-0.5 rounded text-[10px] font-bold">{member.username}</span></p>
-                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] border mt-2 font-bold uppercase tracking-wider ${
-                      member.role === 'cashier' 
-                        ? 'bg-blue-50 text-blue-800 border-blue-150' 
-                        : 'bg-indigo-50 text-indigo-850 border-indigo-150'
-                    }`}>
-                      {member.role === 'cashier' ? 'Kasir (Utama)' : 'Pegawai Cuci/Setrika'}
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <UserAvatar name={member.name} photoURL={member.photoURL} size="md" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">{member.name}</h4>
+                      <p className="text-xs text-slate-400 mt-0.5">Username: <span className="font-mono bg-slate-100 text-slate-700 px-1 py-0.5 rounded text-[10px] font-bold">{member.username}</span></p>
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] border mt-2 font-bold uppercase tracking-wider ${
+                        member.role === 'cashier' 
+                          ? 'bg-blue-50 text-blue-800 border-blue-150' 
+                          : 'bg-indigo-50 text-indigo-850 border-indigo-150'
+                      }`}>
+                        {member.role === 'cashier' ? 'Kasir (Utama)' : 'Pegawai Cuci/Setrika'}
+                      </span>
+                    </div>
                   </div>
                   
                   <button 
@@ -543,6 +625,167 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* SETTINGS OUTLET & PROFIL TAB */}
+      {activeTab === 'settings' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* COLUMN 1: OUTLET CONTROL */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h3 className="font-extrabold text-slate-800 text-base">Informasi Laundry Outlet</h3>
+              <p className="text-xs text-slate-400 mt-1">Sesuaikan nama brand, alamat outlet, dan telepon kontak resmi untuk kasir.</p>
+            </div>
+
+            {outletSuccess && (
+              <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl text-xs font-semibold">
+                {outletSuccess}
+              </div>
+            )}
+            {outletError && (
+              <div className="p-3 bg-rose-50 text-rose-800 border border-rose-100 rounded-xl text-xs font-semibold">
+                {outletError}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateOutlet} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Laundry Outlet</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: Fresh & Clean Kiloan"
+                  value={outletName}
+                  onChange={(e) => setOutletName(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Alamat Lengkap Outlet</label>
+                <textarea 
+                  rows={3}
+                  placeholder="Ketik alamat lengkap untuk dicetak di nota struk thermal..."
+                  value={outletAddress}
+                  onChange={(e) => setOutletAddress(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nomor Telepon Outlet</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: 08123456789"
+                  value={outletPhone}
+                  onChange={(e) => setOutletPhone(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 rounded-xl transition text-sm shadow-sm cursor-pointer"
+              >
+                Simpan Informasi Outlet
+              </button>
+            </form>
+          </div>
+
+          {/* COLUMN 2: OWNER PERSONAL PROFILE */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h3 className="font-extrabold text-slate-800 text-base">Profil Pribadi Owner</h3>
+              <p className="text-xs text-slate-400 mt-1">Ubah nama lengkap Anda dan atur foto profil / avatar visual.</p>
+            </div>
+
+            {profileSuccess && (
+              <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl text-xs font-semibold">
+                {profileSuccess}
+              </div>
+            )}
+            {profileError && (
+              <div className="p-3 bg-rose-50 text-rose-800 border border-rose-100 rounded-xl text-xs font-semibold">
+                {profileError}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProfile} className="space-y-4">
+              <div className="flex items-center gap-4 bg-slate-50 p-4 border border-slate-100 rounded-2xl">
+                <UserAvatar name={profileName || 'Owner'} photoURL={profilePhoto} size="lg" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-extrabold text-slate-800">Pratinjau Foto Profil</h4>
+                  <p className="text-[11px] text-slate-400 leading-normal">Secara otomatis digenerasi berdasarkan inisial nama jika URL profil kosong.</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap Owner</label>
+                <input 
+                  type="text"
+                  placeholder="Contoh: Hj. Sugiharti"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">URL Foto Profil Kustom (Opsional)</label>
+                <input 
+                  type="url"
+                  placeholder="https://contoh.com/foto-anda.jpg"
+                  value={profilePhoto}
+                  onChange={(e) => setProfilePhoto(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                />
+              </div>
+
+              {/* CHOOSE PRESET */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide text-left">Presetan Karakter Cepat</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { name: 'Siti (Kasir)', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80' },
+                    { name: 'Aris (Owner)', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80' },
+                    { name: 'Dewi (Admin)', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80' },
+                    { name: 'Buster (Kartun)', url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Buster' },
+                    { name: 'Anita (Kartun)', url: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Anita' },
+                    { name: 'Dinosaurus', url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bot' }
+                  ].map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setProfilePhoto(item.url)}
+                      className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 transition cursor-pointer"
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setProfilePhoto('')}
+                    className="text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1.5 rounded-lg border border-rose-150 transition cursor-pointer"
+                  >
+                    Kosongkan (Gunakan Inisial)
+                  </button>
+                </div>
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-slate-800 hover:bg-slate-900 text-slate-100 font-extrabold py-3 rounded-xl transition text-sm shadow-sm cursor-pointer"
+              >
+                Simpan Profil Saya
+              </button>
+            </form>
+          </div>
+
         </div>
       )}
 

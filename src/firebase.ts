@@ -618,9 +618,26 @@ export const laundryService = {
     return user;
   },
 
-  loginInternalSimulated: (username: string): UserProfile | null => {
+  loginInternalSimulated: async (username: string): Promise<UserProfile | null> => {
+    const usernameClean = username.trim().toLowerCase();
+    if (useRealFirebase) {
+      try {
+        const usersRef = collection(libDb, 'users');
+        const q = query(usersRef, where('username', '==', usernameClean));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const userDoc = querySnapshot.docs[0];
+          const user = userDoc.data() as UserProfile;
+          laundryService.setSimulatedUser(user);
+          return user;
+        }
+      } catch (e) {
+        console.error("Failed to query user by username from Firestore:", e);
+      }
+    }
+
     const users = getUsersLocal();
-    const user = users.find(u => u.username === username);
+    const user = users.find(u => u.username === usernameClean);
     if (user) {
       laundryService.setSimulatedUser(user);
       return user;

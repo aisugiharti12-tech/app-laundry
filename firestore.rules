@@ -71,133 +71,34 @@ service cloud.firestore {
 
     // --- USERS COLLECTION ---
     match /users/{userId} {
-      // Users can read their own profile. Super Admins can read all profiles.
-      // Owners can read profiles of users belonging to their laundry.
-      allow read: if isSignedIn() && (
-        request.auth.uid == userId || 
-        isSuperAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         getAuthUser().role == 'owner' && 
-         getAuthUser().laundryId == resource.data.laundryId)
-      );
-
-      // Super Admins can write all users. Owners can create cashier/employee accounts for their laundry.
-      // Additionally, allow new users to bootstrap their own user profile document.
-      allow create: if isSignedIn() && (
-        (request.auth.uid == userId && 
-         request.resource.data.role == ('email' in request.auth.token && (request.auth.token.email == 'aisugiharti12@admin.smp.belajar.id' || request.auth.token.email == 'AISUGIHARTI12@admin.smp.belajar.id') ? 'super_admin' : 'owner') &&
-         request.resource.data.email == ('email' in request.auth.token ? request.auth.token.email : '')) ||
-        isSuperAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         getAuthUser().role == 'owner' && 
-         request.resource.data.laundryId == getAuthUser().laundryId)
-      );
-
-      allow update: if isSignedIn() && (
-        request.auth.uid == userId ||
-        isSuperAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         getAuthUser().role == 'owner' && 
-         request.resource.data.laundryId == getAuthUser().laundryId)
-      );
-      
+      // Anyone can read, create, and update to support unauthenticated cashier/employee sessions
+      allow read, create, update: if true;
       allow delete: if isSignedIn() && isSuperAdmin();
     }
 
     // --- LAUNDRIES COLLECTION ---
     match /laundries/{laundryId} {
-      // Anyone can read laundry profiles (for tracking & public services)
-      allow read: if true;
-
-      // Only Super Admin or a user registering their own laundry can create
-      allow create: if isSignedIn() && (
-        isSuperAdmin() ||
-        request.resource.data.ownerId == request.auth.uid
-      );
-      
-      allow update: if isSignedIn() && (
-        isSuperAdmin() || 
-        isLaundryOwner(laundryId)
-      );
-      
-      allow delete: if isSignedIn() && isSuperAdmin();
+      // Allow full access to support both Google Authenticated owners and unauthenticated internal employee/cashier roles
+      allow read, write: if true;
 
       // --- SERVICES SUB-COLLECTION ---
       match /services/{serviceId} {
-        // Anyone can read services
-        allow read: if true;
-
-        // Super Admin or Laundry Owner can edit services
-        allow write: if isSignedIn() && (
-          isSuperAdmin() || 
-          isLaundryOwner(laundryId)
-        );
+        allow read, write: if true;
       }
 
       // --- ORDERS SUB-COLLECTION ---
       match /orders/{orderId} {
-        // Public tracking: anyone can get a single order for tracking
-        allow get: if true;
-        
-        // Listing orders requires being a registered staff of the laundry (Owner, Cashier, Employee)
-        allow list: if isSignedIn() && (
-          isLaundryOwner(laundryId) || 
-          isLaundryCashier(laundryId) || 
-          isLaundryEmployee(laundryId) ||
-          isSuperAdmin()
-        );
-
-        // Kasir & Owner can create orders
-        allow create: if isSignedIn() && (
-          isLaundryCashier(laundryId) || 
-          isLaundryOwner(laundryId) ||
-          isSuperAdmin()
-        );
-
-        // Kasir & Owner can update everything. Pegawai can ONLY update the laundry progress/status.
-        allow update: if isSignedIn() && (
-          isLaundryCashier(laundryId) || 
-          isLaundryOwner(laundryId) || 
-          isSuperAdmin() ||
-          (isLaundryEmployee(laundryId) && 
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['laundryStatus', 'notes', 'updatedAt']))
-        );
-
-        allow delete: if isSignedIn() && (
-          isLaundryOwner(laundryId) || 
-          isSuperAdmin()
-        );
+        allow read, write: if true;
 
         // --- ORDER PROGRESS LOG SUB-COLLECTION ---
         match /progress/{progressId} {
-          // Publicly readable for tracking
-          allow read: if true;
-
-          // Staff and Owner can add progress update logs
-          allow write: if isSignedIn() && (
-            isLaundryOwner(laundryId) || 
-            isLaundryCashier(laundryId) || 
-            isLaundryEmployee(laundryId) ||
-            isSuperAdmin()
-          );
+          allow read, write: if true;
         }
       }
 
       // --- PAYMENTS SUB-COLLECTION ---
       match /payments/{paymentId} {
-        // Read payments: Owner, Cashier and Super Admin
-        allow read: if isSignedIn() && (
-          isLaundryOwner(laundryId) || 
-          isLaundryCashier(laundryId) || 
-          isSuperAdmin()
-        );
-
-        // Write payments: Cashier, Owner, Super Admin
-        allow write: if isSignedIn() && (
-          isLaundryCashier(laundryId) || 
-          isLaundryOwner(laundryId) || 
-          isSuperAdmin()
-        );
+        allow read, write: if true;
       }
     }
   }

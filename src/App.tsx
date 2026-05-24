@@ -101,7 +101,7 @@ export default function App() {
     setEmailInput('');
   };
 
-  const handleInternalLogin = (e: React.FormEvent) => {
+  const handleInternalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     if (!usernameInput.trim()) {
@@ -109,13 +109,18 @@ export default function App() {
       return;
     }
 
-    const profile = laundryService.loginInternalSimulated(usernameInput.trim().toLowerCase());
-    if (profile) {
-      setCurrentUser(profile);
-      setCurrentTab('dashboard');
-      setUsernameInput('');
-    } else {
-      setLoginError('User internal tidak ditemukan. Mintalah Owner laundry mendaftarkan Anda.');
+    try {
+      const profile = await laundryService.loginInternalSimulated(usernameInput.trim().toLowerCase());
+      if (profile) {
+        setCurrentUser(profile);
+        setCurrentTab('dashboard');
+        setUsernameInput('');
+      } else {
+        setLoginError('User internal tidak ditemukan. Mintalah Owner laundry mendaftarkan Anda.');
+      }
+    } catch (err: any) {
+      console.error("Internal login caught error:", err);
+      setLoginError('Terjadi kesalahan koneksi login. Coba lagi.');
     }
   };
 

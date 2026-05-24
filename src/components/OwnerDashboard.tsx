@@ -16,8 +16,12 @@ import {
   Tag, 
   AlertCircle,
   Hash,
-  Activity
+  Activity,
+  FileSpreadsheet,
+  Calendar,
+  Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { laundryService } from '../firebase';
 import { Laundry, LaundryService as ServiceModel, UserProfile, LaundryOrder } from '../types';
 import UserAvatar from './UserAvatar';
@@ -34,6 +38,17 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
   const [services, setServices] = React.useState<ServiceModel[]>([]);
   const [staff, setStaff] = React.useState<UserProfile[]>([]);
   const [orders, setOrders] = React.useState<LaundryOrder[]>([]);
+
+  // Report Period & Filter States
+  const [filterPeriod, setFilterPeriod] = React.useState<'all' | 'weekly' | 'monthly' | 'custom'>('all');
+  const [startDate, setStartDate] = React.useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = React.useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
   // Action Form States
   const [newServiceName, setNewServiceName] = React.useState('');
@@ -215,6 +230,139 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
   const activeOrdersCount = orders.filter(o => o.laundryStatus !== 'diambil' && o.laundryStatus !== 'selesai').length;
   const completedOrdersCount = orders.filter(o => o.laundryStatus === 'selesai' || o.laundryStatus === 'diambil').length;
 
+  // Filtered orders based on selected report period (weekly, monthly, custom start-end / "dari tanggal berapa sampai tanggal berapa")
+  const filteredReportOrders = React.useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+
+    return orders.filter(o => {
+      if (!o.createdAt) return false;
+      const orderDate = new Date(o.createdAt);
+
+      if (filterPeriod === 'weekly') {
+        const lastWeek = new Date();
+        lastWeek.setDate(today.getDate() - 7);
+        lastWeek.setHours(0, 0, 0, 0);
+        return orderDate >= lastWeek && orderDate <= today;
+      }
+
+      if (filterPeriod === 'monthly') {
+        const lastMonth = new Date();
+        lastMonth.setDate(today.getDate() - 30);
+        lastMonth.setHours(0, 0, 0, 0);
+        return orderDate >= lastMonth && orderDate <= today;
+      }
+
+      if (filterPeriod === 'custom') {
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          if (orderDate < start) return false;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          if (orderDate > end) return false;
+        }
+        return true;
+      }
+
+      return true; // 'all'
+    });
+  }, [orders, filterPeriod, startDate, endDate]);
+
+  // Calculations for dynamic selected period preview cards
+  const periodPaidRevenue = React.useMemo(() => {
+    return filteredReportOrders
+      .filter(o => o.paymentStatus === 'paid')
+      .reduce((sum, o) => sum + o.totalPrice, 0);
+  }, [filteredReportOrders]);
+
+  const periodUnpaidRevenue = React.useMemo(() => {
+    return filteredReportOrders
+      .filter(o => o.paymentStatus === 'unpaid')
+      .reduce((sum, o) => sum + o.totalPrice, 0);
+  }, [filteredReportOrders]);
+
+  const periodVolumeKg = React.useMemo(() => {
+    return filteredReportOrders
+      .filter(o => o.unit === 'kg')
+      .reduce((sum, o) => sum + o.weight, 0);
+  }, [filteredReportOrders]);
+
+  const periodVolumePcs = React.useMemo(() => {
+    return filteredReportOrders
+      .filter(o => o.unit === 'pcs')
+      .reduce((sum, o) => sum + o.weight, 0);
+  }, [filteredReportOrders]);
+
+  // Excel (.xlsx) file generator trigger
+  const handleExportToExcel = () => {
+    if (filteredReportOrders.length === 0) {
+      alert("Tidak ada data transaksi yang dapat diekspor untuk periode terpilih.");
+      return;
+    }
+
+    // Build human-friendly columns for sheet
+    const listForExcel = filteredReportOrders.map((o, idx) => ({
+      "No.": idx + 1,
+      "Nomor Invoice": o.invoiceNo,
+      "Nama Pelanggan": o.customerName,
+      "Nomor HP": o.customerPhone,
+      "Nama Layanan": o.serviceName,
+      "Bobot Cucian": o.weight,
+      "Satuan": o.unit.toUpperCase(),
+      "Harga Satuan (Rp)": o.servicePrice,
+      "Total Biaya (Rp)": o.totalPrice,
+      "Status Pembayaran": o.paymentStatus === 'paid' ? 'LUNAS (PAID)' : 'BELUM BAYAR (UNPAID)',
+      "Status Proses Laundry": o.laundryStatus.toUpperCase(),
+      "Kasir Pembuat": o.cashierId || '-',
+      "Tanggal Masuk": new Date(o.createdAt).toLocaleString('id-ID'),
+      "Estimasi Selesai": o.estimatedCompletion ? new Date(o.estimatedCompletion).toLocaleString('id-ID') : '-',
+      "Catatan Nota": o.notes || '-'
+    }));
+
+    // Generate SheetJS workbook & worksheet objects
+    const worksheet = XLSX.utils.json_to_sheet(listForExcel);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Transaksi");
+
+    // Add visual column cell limits to fit typography sizes beautifully
+    worksheet['!cols'] = [
+      { wch: 6 },   // No.
+      { wch: 16 },  // Nomor Invoice
+      { wch: 22 },  // Nama Pelanggan
+      { wch: 16 },  // Nomor HP
+      { wch: 26 },  // Nama Layanan
+      { wch: 13 },  // Bobot Cucian
+      { wch: 10 },  // Satuan
+      { wch: 17 },  // Harga Satuan
+      { wch: 17 },  // Total Biaya
+      { wch: 24 },  // Status Pembayaran
+      { wch: 22 },  // Status Proses Laundry
+      { wch: 16 },  // Kasir Pembuat
+      { wch: 22 },  // Tanggal Masuk
+      { wch: 22 },  // Estimasi Selesai
+      { wch: 28 },  // Catatan Nota
+    ];
+
+    // Determine filename period descriptor
+    let dateStr = 'Masing_Semua';
+    if (filterPeriod === 'weekly') {
+      dateStr = '7_Hari_Terakhir';
+    } else if (filterPeriod === 'monthly') {
+      dateStr = '30_Hari_Terakhir';
+    } else if (filterPeriod === 'custom') {
+      dateStr = `Rentang_${startDate}_s_d_${endDate}`;
+    }
+
+    const cleanLaundryName = (laundry?.name || 'Laundry').replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `Laporan_Laundry_${cleanLaundryName}_${dateStr}.xlsx`;
+
+    // Download file locally to browser
+    XLSX.writeFile(workbook, filename);
+  };
+
   const formatRupiah = (num: number) => {
     return 'Rp ' + num.toLocaleString('id-ID');
   };
@@ -320,6 +468,165 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
                 <span className="p-3 bg-slate-50 text-slate-600 rounded-xl"><CheckCircle className="w-5 h-5" /></span>
               </div>
             </div>
+          </div>
+
+          {/* EXCEL REPORT PERIOD FILTER & EXPORT WIDGET */}
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-indigo-50/50 pb-5">
+              <div>
+                <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                  Pusat Laporan & Ekspor Excel (.xlsx)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Tentukan rentang tanggal laporan transaksi, pantapan ringkasan statistiknya langsung, dan unduh sebagai file Microsoft Excel.
+                </p>
+              </div>
+
+              {/* ACTION: DOWNLOAD Excel FILE BUTTON */}
+              <button
+                type="button"
+                onClick={handleExportToExcel}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-600/10 self-start md:self-auto w-full md:w-auto"
+              >
+                <Download className="w-4 h-4" />
+                Ekspor Laporan Excel ({filteredReportOrders.length} Order)
+              </button>
+            </div>
+
+            {/* CONTROLS CONTROLLER FOR REPORT STATS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* PERIOD BUTTONS ACTIONS */}
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Pilih Periode Laporan:</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterPeriod('all')}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      filterPeriod === 'all'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Semua Transaksi
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterPeriod('weekly')}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      filterPeriod === 'weekly'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Mingguan (7 Hari)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterPeriod('monthly')}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      filterPeriod === 'monthly'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Bulanan (30 Hari)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterPeriod('custom')}
+                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                      filterPeriod === 'custom'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rentang Kustom
+                  </button>
+                </div>
+              </div>
+
+              {/* DATE PICKERS SECTOR */}
+              <div className="lg:col-span-2 space-y-3">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  {filterPeriod === 'custom' ? 'Tentukan Tanggal Rentang Kustom (Mulai - Akhir):' : 'Status Rentang Tanggal:'}
+                </span>
+                
+                {filterPeriod === 'custom' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3.5 text-slate-400"><Calendar className="w-4 h-4" /></span>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="absolute -top-2 left-3 px-1.5 text-[9px] bg-white font-bold text-slate-400 uppercase tracking-widest">Tanggal Mulai</span>
+                    </div>
+
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3.5 text-slate-400"><Calendar className="w-4 h-4" /></span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="absolute -top-2 left-3 px-1.5 text-[9px] bg-white font-bold text-slate-400 uppercase tracking-widest">Tanggal Akhir</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between text-xs text-slate-500 h-[52px]">
+                    <span className="flex items-center gap-2 font-semibold">
+                      <Calendar className="w-4 h-4 text-slate-400" />
+                      Rentang Terkunci: 
+                      <span className="font-extrabold text-blue-600">
+                        {filterPeriod === 'all' && 'Semua Sejarah Transaksi'}
+                        {filterPeriod === 'weekly' && 'Otomatis 7 Hari Terakhir'}
+                        {filterPeriod === 'monthly' && 'Otomatis 30 Hari Terakhir'}
+                      </span>
+                    </span>
+                    <span className="text-[9px] bg-slate-200 font-bold px-2 py-1 rounded uppercase tracking-wider text-slate-600">Aktif</span>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* SELECTED REPORTING STATS PREVIEW CARDS */}
+            <div className="bg-slate-50/75 border border-slate-200/80 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-200/50 pb-2.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Pratinjau Ringkasan Periode Terpilih
+                </span>
+                <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-150 px-2.5 py-0.5 rounded font-bold uppercase tracking-wide">
+                  {filteredReportOrders.length} Cucian Ditemukan
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Omset Lunas</span>
+                  <span className="text-sm font-black text-emerald-600 block">{formatRupiah(periodPaidRevenue)}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Piutang Kasir</span>
+                  <span className="text-sm font-black text-rose-600 block">{formatRupiah(periodUnpaidRevenue)}</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Bobot Kiloan (Kg)</span>
+                  <span className="text-sm font-black text-slate-700 block">{periodVolumeKg} Kg</span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Kuantitas Pcs</span>
+                  <span className="text-sm font-black text-slate-700 block">{periodVolumePcs} Pcs</span>
+                </div>
+              </div>
+            </div>
+
           </div>
 
           {/* INCOME GRAPH SIMULATOR USING HIGHLY POLISHED SVGs */}

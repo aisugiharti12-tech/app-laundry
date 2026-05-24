@@ -344,6 +344,25 @@ let cache_payments: LaundryPayment[] = [];
 
 let activeSubscriptions: (() => void)[] = [];
 
+let stateChangeListeners: (() => void)[] = [];
+
+export function subscribeToFirebaseChanges(callback: () => void) {
+  stateChangeListeners.push(callback);
+  return () => {
+    stateChangeListeners = stateChangeListeners.filter(cb => cb !== callback);
+  };
+}
+
+function notifyStateChange() {
+  stateChangeListeners.forEach(cb => {
+    try {
+      cb();
+    } catch (e) {
+      console.warn("Error calling state change listener:", e);
+    }
+  });
+}
+
 export function clearFirebaseSubscriptions() {
   activeSubscriptions.forEach(unsub => {
     try {
@@ -368,6 +387,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubUsers = onSnapshot(collection(libDb, 'users'), (snapshot) => {
         cache_users = snapshot.docs.map(d => d.data() as UserProfile);
         localStorage.setItem('lnd_users', JSON.stringify(cache_users));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active users listener message:", error.message);
       });
@@ -377,6 +397,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubUsers = onSnapshot(q, (snapshot) => {
         cache_users = snapshot.docs.map(d => d.data() as UserProfile);
         localStorage.setItem('lnd_users', JSON.stringify(cache_users));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active staff listener message:", error.message);
       });
@@ -392,6 +413,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubLaundries = onSnapshot(collection(libDb, 'laundries'), (snapshot) => {
         cache_laundries = snapshot.docs.map(d => d.data() as Laundry);
         localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active laundries listener message:", error.message);
       });
@@ -401,6 +423,7 @@ export function startFirebaseSync(user: UserProfile) {
         if (snapshot.exists()) {
           cache_laundries = [snapshot.data() as Laundry];
           localStorage.setItem('lnd_laundries', JSON.stringify(cache_laundries));
+          notifyStateChange();
         }
       }, (error) => {
         console.warn("Active laundry details listener message:", error.message);
@@ -417,6 +440,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubServices = onSnapshot(collection(libDb, 'laundries', laundryId, 'services'), (snapshot) => {
         cache_services = snapshot.docs.map(d => d.data() as LaundryService);
         localStorage.setItem('lnd_services', JSON.stringify(cache_services));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active laundry services listener message:", error.message);
       });
@@ -429,6 +453,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubOrders = onSnapshot(collection(libDb, 'laundries', laundryId, 'orders'), (snapshot) => {
         cache_orders = snapshot.docs.map(d => d.data() as LaundryOrder);
         localStorage.setItem('lnd_orders', JSON.stringify(cache_orders));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active laundry orders listener message:", error.message);
       });
@@ -441,6 +466,7 @@ export function startFirebaseSync(user: UserProfile) {
       const unsubPayments = onSnapshot(collection(libDb, 'laundries', laundryId, 'payments'), (snapshot) => {
         cache_payments = snapshot.docs.map(d => d.data() as LaundryPayment);
         localStorage.setItem('lnd_payments', JSON.stringify(cache_payments));
+        notifyStateChange();
       }, (error) => {
         console.warn("Active payments listener message:", error.message);
       });
@@ -487,6 +513,10 @@ export const laundryService = {
     } else {
       localStorage.removeItem('lnd_current_user');
     }
+  },
+
+  subscribeToChanges: (callback: () => void) => {
+    return subscribeToFirebaseChanges(callback);
   },
 
   loginGoogleReal: async (): Promise<UserProfile> => {

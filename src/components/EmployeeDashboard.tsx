@@ -18,7 +18,7 @@ import {
   Zap
 } from 'lucide-react';
 import { laundryService } from '../firebase';
-import { LaundryOrder, LaundryStatus } from '../types';
+import { Laundry, LaundryOrder, LaundryStatus } from '../types';
 
 interface EmployeeDashboardProps {
   currentLaundryId: string;
@@ -28,6 +28,7 @@ interface EmployeeDashboardProps {
 
 export default function EmployeeDashboard({ currentLaundryId, employeeId, employeeName }: EmployeeDashboardProps) {
   const [orders, setOrders] = React.useState<LaundryOrder[]>([]);
+  const [laundry, setLaundry] = React.useState<Laundry | null>(null);
   const [filterMode, setFilterMode] = React.useState<'active' | 'all'>('active');
 
   // Interactive update status state
@@ -38,10 +39,20 @@ export default function EmployeeDashboard({ currentLaundryId, employeeId, employ
   const loadData = () => {
     const list = laundryService.getOrders(currentLaundryId);
     setOrders(list);
+    
+    const laundries = laundryService.getLaundries();
+    const lnd = laundries.find(item => item.laundryId === currentLaundryId);
+    if (lnd) {
+      setLaundry(lnd);
+    }
   };
 
   React.useEffect(() => {
     loadData();
+    const unsubscribe = laundryService.subscribeToChanges(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, [currentLaundryId]);
 
   const handleOpenUpdateModal = (order: LaundryOrder, status: LaundryStatus) => {
@@ -100,7 +111,9 @@ export default function EmployeeDashboard({ currentLaundryId, employeeId, employ
       {/* HEADER BAR */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-5 gap-4">
         <div>
-          <span className="text-xs font-bold text-indigo-650 uppercase tracking-widest">Dashboard Operator Lapangan</span>
+          <span className="text-xs font-bold text-indigo-650 uppercase tracking-widest">
+            Dashboard Operator Lapangan {laundry ? `• ${laundry.name}` : ''}
+          </span>
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">Antrean Cuci & Setrika</h1>
         </div>
 

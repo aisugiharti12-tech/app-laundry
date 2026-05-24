@@ -64,6 +64,10 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
 
   React.useEffect(() => {
     loadAllData();
+    const unsubscribe = laundryService.subscribeToChanges(() => {
+      loadAllData();
+    });
+    return () => unsubscribe();
   }, [currentLaundryId]);
 
   // Handle adding a laundry service

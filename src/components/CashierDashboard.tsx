@@ -21,7 +21,7 @@ import {
   X 
 } from 'lucide-react';
 import { laundryService } from '../firebase';
-import { LaundryOrder, LaundryService as ServiceModel, PaymentStatus } from '../types';
+import { Laundry, LaundryOrder, LaundryService as ServiceModel, PaymentStatus } from '../types';
 import QRCode from 'react-qr-code';
 
 interface CashierDashboardProps {
@@ -33,6 +33,7 @@ export default function CashierDashboard({ currentLaundryId, cashierId }: Cashie
   const [activeTab, setActiveTab] = React.useState<'list' | 'create'>('list');
   const [services, setServices] = React.useState<ServiceModel[]>([]);
   const [orders, setOrders] = React.useState<LaundryOrder[]>([]);
+  const [laundry, setLaundry] = React.useState<Laundry | null>(null);
   const [searchQuery, setSearchQuery] = React.useState('');
 
   // New Order Form States
@@ -52,10 +53,20 @@ export default function CashierDashboard({ currentLaundryId, cashierId }: Cashie
   const loadData = () => {
     setServices(laundryService.getServices(currentLaundryId));
     setOrders(laundryService.getOrders(currentLaundryId));
+    
+    const laundries = laundryService.getLaundries();
+    const lnd = laundries.find(item => item.laundryId === currentLaundryId);
+    if (lnd) {
+      setLaundry(lnd);
+    }
   };
 
   React.useEffect(() => {
     loadData();
+    const unsubscribe = laundryService.subscribeToChanges(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, [currentLaundryId]);
 
   // Handle Order Submit (Cashier Action)
@@ -136,7 +147,9 @@ export default function CashierDashboard({ currentLaundryId, cashierId }: Cashie
       {/* CASHIER HEADER */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 pb-5 gap-4">
         <div>
-          <span className="text-xs font-bold text-emerald-600 uppercase tracking-widest">Sistem Kasir Utama</span>
+          <span className="text-xs font-bold text-emerald-600 uppercase tracking-widest">
+            Sistem Kasir Utama {laundry ? `• ${laundry.name}` : ''}
+          </span>
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">Katalog Transaksi Outlet</h1>
         </div>
         

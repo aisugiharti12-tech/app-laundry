@@ -53,7 +53,10 @@ export default function App() {
       }
     } else {
       const active = laundryService.getCurrentSimulatedUser();
-      if (active) setCurrentUser(active);
+      if (active) {
+        setCurrentUser(active);
+        setCurrentTab('dashboard');
+      }
     }
   }, []);
 

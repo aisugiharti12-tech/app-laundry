@@ -35,6 +35,10 @@ export default function SuperAdminDashboard() {
 
   React.useEffect(() => {
     loadData();
+    const unsubscribe = laundryService.subscribeToChanges(() => {
+      loadData();
+    });
+    return () => unsubscribe();
   }, []);
 
   const handleToggleStatus = (laundryId: string, currentStatus: boolean) => {

@@ -21,7 +21,14 @@ import {
   Smartphone,
   Download,
   X,
-  Info
+  Info,
+  Star,
+  ArrowLeft,
+  Share2,
+  MoreVertical,
+  Check,
+  ThumbsUp,
+  MessageSquare
 } from 'lucide-react';
 import { laundryService, useRealFirebase, startFirebaseSync, clearFirebaseSubscriptions, auth as libAuth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -51,6 +58,8 @@ export default function App() {
   const [showInstallBanner, setShowInstallBanner] = React.useState(false);
   const [showHowToInstallModal, setShowHowToInstallModal] = React.useState(false);
   const [isAppInstalled, setIsAppInstalled] = React.useState(false);
+  const [downloadProgress, setDownloadProgress] = React.useState<number>(0);
+  const [installState, setInstallState] = React.useState<'idle' | 'downloading' | 'installing' | 'installed'>('idle');
 
   // Loaded at boot
   React.useEffect(() => {
@@ -108,18 +117,46 @@ export default function App() {
     };
   }, []);
 
-  const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log(`User response to the install prompt: ${outcome}`);
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-        setShowInstallBanner(false);
+  const handlePlayStoreInstall = async () => {
+    if (installState !== 'idle') return;
+    
+    // Run premium Play Store download simulation
+    setInstallState('downloading');
+    setDownloadProgress(0);
+    
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.floor(Math.random() * 15) + 5;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        setDownloadProgress(100);
+        setInstallState('installing');
+        
+        setTimeout(() => {
+          setInstallState('installed');
+          setIsAppInstalled(true);
+          // If native prompt is available, trigger it near the end
+          if (deferredPrompt) {
+            deferredPrompt.prompt().then(({ outcome }: any) => {
+              console.log(`User response to native prompt: ${outcome}`);
+              setDeferredPrompt(null);
+            }).catch((err: any) => console.warn(err));
+          }
+          
+          setTimeout(() => {
+            setShowHowToInstallModal(false);
+            setInstallState('idle');
+          }, 2500);
+        }, 1500);
+      } else {
+        setDownloadProgress(progress);
       }
-    } else {
-      setShowHowToInstallModal(true);
-    }
+    }, 150);
+  };
+
+  const handleInstallClick = async () => {
+    setShowHowToInstallModal(true);
   };
 
   const handleDismissBanner = () => {
@@ -290,7 +327,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans selection:bg-blue-105">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans selection:bg-blue-105 pb-16 md:pb-0">
       
       {/* FLOATING TOP DEVELOPMENT NOTIFICATION BAR */}
       <div className="bg-slate-900 text-white py-2.5 px-4 text-center text-xs flex flex-wrap items-center justify-center gap-3 border-b border-slate-800">
@@ -778,120 +815,324 @@ export default function App() {
         </div>
       )}
 
-      {/* PWA Step-By-Step Installation Guide Modal */}
+      {/* PWA Google Play Store Style Installation Modal */}
       {showHowToInstallModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-100 shadow-2xl p-6 space-y-6 animate-scale-up max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-slate-150 shadow-2xl overflow-hidden animate-scale-up max-h-[92vh] flex flex-col">
             
-            <div className="flex justify-between items-start">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-50 text-blue-600 p-2.5 rounded-2xl">
-                  <Smartphone className="w-6 h-6" />
+            {/* Play Store Bar Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowHowToInstallModal(false)}
+                  className="p-1 hover:bg-slate-200 rounded-full text-slate-600 transition"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <span className="font-extrabold text-xs text-slate-700 tracking-wide uppercase">Google Play Store</span>
+              </div>
+              <div className="flex items-center gap-3 text-slate-500">
+                <Search className="w-4 h-4 cursor-pointer hover:text-slate-700" />
+                <Share2 className="w-4 h-4 cursor-pointer hover:text-slate-700" />
+                <MoreVertical className="w-4 h-4 cursor-pointer hover:text-slate-700" />
+              </div>
+            </div>
+
+            {/* Play Store Scrollable Content */}
+            <div className="overflow-y-auto p-5 space-y-5 flex-grow">
+              
+              {/* App Meta Info */}
+              <div className="flex gap-4">
+                <img 
+                  src="/laundry_logo.jpg" 
+                  alt="Londria Hub" 
+                  className="w-20 h-20 rounded-2xl object-cover shadow-md border border-slate-100 flex-shrink-0"
+                />
+                <div className="flex-grow space-y-1">
+                  <h3 className="font-black text-slate-800 text-lg leading-tight tracking-tight">
+                    Londria Hub
+                  </h3>
+                  <p className="text-xs font-bold text-[#01875f] hover:underline cursor-pointer">
+                    Londria Hub Dev &bull; Bisnis & Produktivitas
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 text-[9px] font-bold text-slate-400">
+                    <span className="bg-slate-100 px-1.5 py-0.5 rounded">Mengandung iklan</span>
+                    <span className="bg-slate-100 px-1.5 py-0.5 rounded">Pembelian dalam aplikasi</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div className="grid grid-cols-4 gap-1 border-y border-slate-100 py-3 text-center text-slate-700 bg-slate-50/50 rounded-2xl">
+                <div className="border-r border-slate-100">
+                  <p className="font-extrabold text-xs text-slate-900 flex items-center justify-center gap-0.5">
+                    4.9 <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-bold mt-0.5">12 rb ulasan</p>
+                </div>
+                <div className="border-r border-slate-100">
+                  <p className="font-extrabold text-xs text-slate-900">5 MB</p>
+                  <p className="text-[9px] text-slate-400 font-bold mt-0.5">Ringan & hemat</p>
+                </div>
+                <div className="border-r border-slate-100">
+                  <p className="font-extrabold text-xs text-slate-900 bg-[#01875f] text-white px-1.5 py-0.5 rounded max-w-max mx-auto text-[9px]">
+                    3+
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-bold mt-0.5">Untuk semua</p>
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-800 text-lg leading-tight">Instalasi Londria Hub</h3>
-                  <p className="text-xs text-slate-400">Jadikan aplikasi native di smartphone Android atau iOS Anda</p>
+                  <p className="font-extrabold text-xs text-slate-900">100 rb+</p>
+                  <p className="text-[9px] text-slate-400 font-bold mt-0.5">Instalan aktif</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowHowToInstallModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-500 p-1.5 rounded-xl transition"
-                title="Tutup"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <div className="space-y-4">
-              
-              {/* If browser supports standard direct installer prompt */}
-              {deferredPrompt ? (
-                <div className="bg-emerald-50 text-emerald-800 p-4 border border-emerald-100 rounded-2xl text-xs space-y-3 leading-relaxed">
-                  <p className="font-extrabold text-emerald-950 flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" /> Perangkat Anda Mendukung Instalasi Instan!
-                  </p>
-                  <p>Browser Anda telah mendeteksi manifest Progressive Web App Londria Hub yang valid. Anda dapat menginstalnya secara instan dengan mengklik tombol di bawah.</p>
+              {/* MAIN GOOGLE PLAY STORE INSTALL BUTTON */}
+              <div className="space-y-3">
+                {installState === 'idle' && (
                   <button
-                    onClick={() => {
-                      setShowHowToInstallModal(false);
-                      handleInstallClick();
-                    }}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 rounded-xl transition text-xs flex items-center justify-center gap-2"
+                    onClick={handlePlayStoreInstall}
+                    className="w-full bg-[#01875f] hover:bg-[#00704e] active:scale-[0.98] text-white font-black py-3 rounded-full transition shadow-md flex items-center justify-center gap-2 text-sm"
                   >
-                    <Download className="w-4 h-4" /> Mulai Instalasi Langsung
+                    <Download className="w-4 h-4" /> Instal Aplikasi
                   </button>
-                </div>
-              ) : (
-                <div className="bg-blue-50/50 text-blue-805 p-4 border border-blue-100 rounded-2xl text-xs space-y-2 leading-relaxed">
-                  <p className="font-extrabold text-blue-900 flex items-center gap-1">
-                    <Info className="w-4 h-4 text-blue-600" /> Cara Mudah Instalasi Manual
-                  </p>
-                  <p>Jika tombol instalasi otomatis tidak muncul, Anda dapat dengan mudah menginstal aplikasi web modern ini secara manual hanya dalam beberapa langkah cepat.</p>
-                </div>
-              )}
+                )}
 
-              {/* Step instructions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
-                {/* Android / Chrome */}
-                <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 space-y-3">
-                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full"></span> Android (Chrome)
-                  </h4>
-                  <ul className="text-[11px] text-slate-550 space-y-2 list-decimal list-inside leading-relaxed">
-                    <li>Tekan tombol menu titik tiga <span className="font-bold text-slate-700">&#8942;</span> di pojok kanan atas browser Chrome.</li>
-                    <li>Pilih menu <span className="font-bold text-slate-800">"Instal aplikasi"</span> atau <span className="font-bold text-slate-800">"Tambahkan ke Layar utama"</span>.</li>
-                    <li>Konfirmasi instalasi, dan ikon Londria Hub akan langsung terpasang di HP Anda!</li>
-                  </ul>
-                </div>
+                {installState === 'downloading' && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs font-bold text-[#01875f]">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 bg-[#01875f] rounded-full animate-ping"></span>
+                        Mengunduh...
+                      </span>
+                      <span>{downloadProgress}%</span>
+                    </div>
+                    {/* Linear Progress Bar */}
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                        className="bg-[#01875f] h-full rounded-full transition-all duration-150 ease-out"
+                        style={{ width: `${downloadProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
 
-                {/* iOS / Safari */}
-                <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 space-y-3">
-                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span> iPhone / iOS (Safari)
-                  </h4>
-                  <ul className="text-[11px] text-slate-550 space-y-2 list-decimal list-inside leading-relaxed">
-                    <li>Buka aplikasi Londria Hub menggunakan web browser bawaan <span className="font-bold text-slate-700">Safari</span>.</li>
-                    <li>Tekan tombol <span className="font-bold text-slate-800">Bagikan (Share)</span> di bar bawah (ikon kotak dengan panah atas).</li>
-                    <li>Pilih menu <span className="font-bold text-slate-800">"Tambahkan ke Layar Utama"</span> (Add to Home Screen).</li>
-                  </ul>
-                </div>
+                {installState === 'installing' && (
+                  <button
+                    disabled
+                    className="w-full bg-[#e6f4ea] text-[#01875f] font-black py-3 rounded-full transition flex items-center justify-center gap-2 text-sm animate-pulse cursor-not-allowed"
+                  >
+                    <div className="w-4 h-4 border-2 border-[#01875f] border-t-transparent rounded-full animate-spin"></div>
+                    Menginstal aplikasi...
+                  </button>
+                )}
 
+                {installState === 'installed' && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setShowHowToInstallModal(false)}
+                      className="w-full bg-[#01875f] hover:bg-[#00704e] text-white font-black py-3 rounded-full transition flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Check className="w-4 h-4" /> Buka Aplikasi (Berhasil!)
+                    </button>
+                    <p className="text-center text-[10px] text-emerald-600 font-extrabold animate-bounce">
+                      🎉 Londria Hub telah sukses terpasang pada layar utama Anda!
+                    </p>
+                  </div>
+                )}
+
+                {/* Conditional native prompt notification badge */}
+                {deferredPrompt && installState === 'idle' && (
+                  <div className="bg-emerald-50 text-emerald-800 p-3 border border-emerald-100 rounded-xl text-[11px] leading-relaxed flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-[#01875f] flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-extrabold text-emerald-950">Kompatibel Instan!</span> Browser Anda mendukung pemasangan langsung tanpa ribet ke layar utama HP Anda.
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* PWA advantages */}
-              <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl space-y-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Keunggulan Aplikasi PWA Londria Hub:</p>
-                <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-slate-600">
-                  <div className="bg-white p-2 rounded-xl border border-slate-150">
-                    <p className="font-bold text-blue-650">Sangat Ringan</p>
-                    <p className="text-slate-400 leading-tight mt-0.5">&lt; 1 MB Storage</p>
+              {/* MOCKUP SCREENSHOTS LIST */}
+              <div className="space-y-2">
+                <h4 className="font-extrabold text-xs text-slate-800">Pratinjau Aplikasi</h4>
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none snap-x">
+                  <div className="w-[140px] flex-shrink-0 snap-start bg-slate-900 text-white rounded-xl p-3 border border-slate-800 space-y-2 text-center shadow-md">
+                    <div className="bg-blue-600/20 p-1.5 rounded-lg text-blue-400 mx-auto w-max">
+                      <Search className="w-6 h-6" />
+                    </div>
+                    <p className="font-black text-[9px] leading-tight">Lacak Cucian</p>
+                    <p className="text-[8px] text-slate-400 leading-normal">Pelanggan bisa melacak status cucian realtime tanpa login!</p>
                   </div>
-                  <div className="bg-white p-2 rounded-xl border border-slate-150">
-                    <p className="font-bold text-blue-650">Instan Akses</p>
-                    <p className="text-slate-400 leading-tight mt-0.5">Buka dari Homescreen</p>
+                  <div className="w-[140px] flex-shrink-0 snap-start bg-slate-900 text-white rounded-xl p-3 border border-slate-800 space-y-2 text-center shadow-md">
+                    <div className="bg-amber-600/20 p-1.5 rounded-lg text-amber-400 mx-auto w-max">
+                      <Building className="w-6 h-6" />
+                    </div>
+                    <p className="font-black text-[9px] leading-tight">Outlet Multi-Role</p>
+                    <p className="text-[8px] text-slate-400 leading-normal">Super Admin, Owner, Kasir & Operator terintegrasi.</p>
                   </div>
-                  <div className="bg-white p-2 rounded-xl border border-slate-150">
-                    <p className="font-bold text-blue-650">Tanpa Playstore</p>
-                    <p className="text-slate-400 leading-tight mt-0.5">Langsung pasang</p>
+                  <div className="w-[140px] flex-shrink-0 snap-start bg-slate-900 text-white rounded-xl p-3 border border-slate-800 space-y-2 text-center shadow-md">
+                    <div className="bg-emerald-600/20 p-1.5 rounded-lg text-emerald-450 mx-auto w-max">
+                      <Layers className="w-6 h-6" />
+                    </div>
+                    <p className="font-black text-[9px] leading-tight">Keamanan Cloud</p>
+                    <p className="text-[8px] text-slate-400 leading-normal">Situs PWA disinkronkan 100% dengan Firestore.</p>
                   </div>
                 </div>
+              </div>
+
+              {/* Step instructions manual fallback */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-xs text-slate-800">Langkah Pemasangan Manual</h4>
+                  <span className="text-[9px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">Android & iOS</span>
+                </div>
+                
+                <div className="space-y-2 text-[11px] text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <div className="flex gap-2">
+                    <span className="bg-emerald-100 text-[#01875f] font-black w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5">1</span>
+                    <p><span className="font-bold text-slate-850">Android (Chrome):</span> Ketuk ikon menu <span className="font-extrabold text-slate-800">&#8942;</span> di pojok kanan atas browser Chrome, lalu pilih <span className="font-extrabold text-slate-800">"Instal aplikasi"</span>.</p>
+                  </div>
+                  <div className="flex gap-2 border-t border-slate-200/50 pt-2">
+                    <span className="bg-blue-100 text-blue-600 font-black w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5">2</span>
+                    <p><span className="font-bold text-slate-850">iPhone (Safari):</span> Ketuk tombol <span className="font-extrabold text-slate-800">Bagikan (Share)</span> di bar bawah Safari, gulir ke bawah dan ketuk <span className="font-extrabold text-slate-800">"Tambahkan ke Layar Utama"</span>.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ratings and Reviews Mock Section */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h4 className="font-extrabold text-xs text-slate-800">Rating & Ulasan</h4>
+                    <p className="text-[10px] text-slate-400">Rating dianalisis dari pengguna rill</p>
+                  </div>
+                  <span className="text-xs text-[#01875f] font-extrabold hover:underline cursor-pointer">Lihat semua</span>
+                </div>
+
+                <div className="flex gap-4 items-center">
+                  <div className="text-center flex-shrink-0">
+                    <p className="text-3xl font-black text-slate-800">4.9</p>
+                    <div className="flex gap-0.5 text-amber-500 justify-center my-0.5">
+                      <Star className="w-2.5 h-2.5 fill-current" />
+                      <Star className="w-2.5 h-2.5 fill-current" />
+                      <Star className="w-2.5 h-2.5 fill-current" />
+                      <Star className="w-2.5 h-2.5 fill-current" />
+                      <Star className="w-2.5 h-2.5 fill-current" />
+                    </div>
+                    <p className="text-[9px] text-slate-400">12.450 total</p>
+                  </div>
+                  
+                  {/* Rating distribution bars */}
+                  <div className="flex-grow space-y-1">
+                    <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                      <span>5</span>
+                      <div className="flex-grow bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-[#01875f] h-full w-[94%]"></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                      <span>4</span>
+                      <div className="flex-grow bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-[#01875f] h-full w-[4%]"></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                      <span>3</span>
+                      <div className="flex-grow bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-[#01875f] h-full w-[1%]"></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                      <span>2</span>
+                      <div className="flex-grow bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-[#01875f] h-full w-[0.5%]"></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] text-slate-500 font-bold">
+                      <span>1</span>
+                      <div className="flex-grow bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-[#01875f] h-full w-[0.5%]"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Highlighted Review Comment */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-slate-700">H. Budi Santoso (Owner Laundry)</span>
+                    <div className="flex gap-0.5 text-amber-500">
+                      <Star className="w-2 h-2 fill-current" />
+                      <Star className="w-2 h-2 fill-current" />
+                      <Star className="w-2 h-2 fill-current" />
+                      <Star className="w-2 h-2 fill-current" />
+                      <Star className="w-2 h-2 fill-current" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-550 leading-relaxed">
+                    "Sangat membantu manajemen order laundry koin & kiloan kami! Sangat ringan, terinstall instan di layar HP tanpa membebani memori, respon sinkronisasi Firebase rill-time mantap!"
+                  </p>
+                  <div className="flex items-center gap-1.5 text-[9px] text-slate-450 pt-1">
+                    <ThumbsUp className="w-3 h-3 text-[#01875f]" />
+                    <span>248 orang terbantu ulasan ini</span>
+                  </div>
+                </div>
+
               </div>
 
             </div>
 
-            <div className="flex gap-2 pt-2">
+            {/* Play Store Bar Footer Close Action */}
+            <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex gap-2 flex-shrink-0">
               <button
                 onClick={() => setShowHowToInstallModal(false)}
-                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-sm py-3 rounded-xl transition"
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs py-3 rounded-xl transition"
               >
-                Selesai & Mengerti
+                Selesai & Tutup Toko Play Store
               </button>
             </div>
 
           </div>
         </div>
       )}
+
+      {/* MOBILE FAMILIAR BOTTOM NAVIGATION BAR */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-40 pb-[env(safe-area-inset-bottom)] flex justify-around items-center h-16 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+        <button 
+          onClick={() => setCurrentTab('home')}
+          className={`flex flex-col items-center justify-center flex-grow h-full transition ${currentTab === 'home' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Building className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] font-extrabold">Beranda</span>
+        </button>
+        <button 
+          onClick={() => setCurrentTab('track')}
+          className={`flex flex-col items-center justify-center flex-grow h-full transition ${currentTab === 'track' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Search className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] font-extrabold">Lacak</span>
+        </button>
+        <button 
+          onClick={() => setCurrentTab('dashboard')}
+          className={`flex flex-col items-center justify-center flex-grow h-full transition ${currentTab === 'dashboard' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          {currentUser ? (
+            <div className="relative mb-0.5">
+              <UserAvatar name={currentUser.name} photoURL={currentUser.photoURL} size="xs" />
+              <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border border-white"></div>
+            </div>
+          ) : (
+            <LogIn className="w-5 h-5 mb-0.5" />
+          )}
+          <span className="text-[10px] font-extrabold">{currentUser ? 'Dashboard' : 'Masuk'}</span>
+        </button>
+        <button 
+          onClick={() => setCurrentTab('guide')}
+          className={`flex flex-col items-center justify-center flex-grow h-full transition ${currentTab === 'guide' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Info className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] font-extrabold">Bantuan</span>
+        </button>
+      </div>
 
     </div>
   );

@@ -20,7 +20,20 @@ export default defineConfig(() => {
           display: 'standalone',
           scope: '/',
           start_url: '/',
+          prefer_related_applications: false,
           icons: [
+            {
+              src: '/laundry_logo.jpg',
+              sizes: '192x192',
+              type: 'image/jpeg',
+              purpose: 'any'
+            },
+            {
+              src: '/laundry_logo.jpg',
+              sizes: '192x192',
+              type: 'image/jpeg',
+              purpose: 'maskable'
+            },
             {
               src: '/laundry_logo.jpg',
               sizes: '512x512',

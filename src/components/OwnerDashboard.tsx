@@ -22,7 +22,8 @@ import {
   Download,
   Wallet,
   Receipt,
-  TrendingDown
+  TrendingDown,
+  Info
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { laundryService } from '../firebase';
@@ -440,6 +441,10 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
     return max > 0 ? max : 10;
   }, [last7DaysStats]);
 
+  const hasChartData = React.useMemo(() => {
+    return last7DaysStats.some(item => item.kg > 0);
+  }, [last7DaysStats]);
+
   // Excel (.xlsx) file generator trigger with supporting transaction and expense worksheets
   const handleExportToExcel = () => {
     if (filteredReportOrders.length === 0 && filteredReportExpenses.length === 0) {
@@ -834,7 +839,20 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
               Statistik Berat Cucian Masuk (Kg) 7 Hari Terakhir
             </h3>
             
-            <div className="h-56 w-full flex items-end justify-between gap-2 pt-6 pb-2 border-b border-indigo-50/50">
+            <div className="relative h-56 w-full flex items-end justify-between gap-2 pt-6 pb-2 border-b border-indigo-50/50">
+              {/* Overlap Info when there is no transactions in last 7 days */}
+              {!hasChartData && (
+                <div className="absolute inset-0 bg-white/95 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-4 z-10 rounded-xl">
+                  <div className="bg-blue-50 text-blue-600 p-2.5 rounded-full mb-1.5">
+                    <Info className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Belum Ada Transaksi Masuk</h4>
+                  <p className="text-[10px] text-slate-500 max-w-[280px] mt-0.5 leading-relaxed">
+                    Statistik berat cucian 7 hari terakhir akan otomatis ter-update secara rill-time setelah Anda menginput order laundry baru dengan satuan Kiloan (Kg).
+                  </p>
+                </div>
+              )}
+
               {last7DaysStats.map((item, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center h-full justify-end">
                   <span className="text-[10px] font-mono text-blue-600 font-bold mb-1">{item.kg}kg</span>

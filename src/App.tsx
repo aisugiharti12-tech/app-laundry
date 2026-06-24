@@ -17,7 +17,11 @@ import {
   Trophy,
   Activity,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Smartphone,
+  Download,
+  X,
+  Info
 } from 'lucide-react';
 import { laundryService, useRealFirebase, startFirebaseSync, clearFirebaseSubscriptions, auth as libAuth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -42,6 +46,12 @@ export default function App() {
   const [loginError, setLoginError] = React.useState('');
   const [isLoggingIn, setIsLoggingIn] = React.useState(false);
 
+  // PWA Install State
+  const [deferredPrompt, setDeferredPrompt] = React.useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = React.useState(false);
+  const [showHowToInstallModal, setShowHowToInstallModal] = React.useState(false);
+  const [isAppInstalled, setIsAppInstalled] = React.useState(false);
+
   // Loaded at boot
   React.useEffect(() => {
     // Check pathname routing for Vercel/production tracking view route integration
@@ -61,6 +71,61 @@ export default function App() {
       }
     }
   }, []);
+
+  // PWA Installation Listeners & Detection Hook
+  React.useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      
+      const isDismissed = sessionStorage.getItem('lnd_pwa_install_dismissed') === 'true';
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      
+      if (!isDismissed && !isStandalone) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+      console.log('Londria Hub PWA installed successfully!');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Initial checks
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    if (isStandalone) {
+      setIsAppInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`User response to the install prompt: ${outcome}`);
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        setShowInstallBanner(false);
+      }
+    } else {
+      setShowHowToInstallModal(true);
+    }
+  };
+
+  const handleDismissBanner = () => {
+    sessionStorage.setItem('lnd_pwa_install_dismissed', 'true');
+    setShowInstallBanner(false);
+  };
 
   // Real-time Firebase Auth session restoration listener hook
   React.useEffect(() => {
@@ -236,6 +301,15 @@ export default function App() {
           Aplikasi terhubung langsung 100% ke Database Firebase Firestore Aktif di Vercel Production.
         </p>
         <div className="flex gap-2">
+          {!isAppInstalled && (
+            <button 
+              onClick={() => setShowHowToInstallModal(true)}
+              className="text-[10px] font-bold bg-blue-650 hover:bg-blue-700 text-white px-2.5 py-1 rounded-md transition flex items-center gap-1 border border-blue-500/30"
+              title="Petunjuk & instalasi aplikasi ke handphone"
+            >
+              <Smartphone className="w-3 h-3" /> Instal Aplikasi HP
+            </button>
+          )}
           <button 
             onClick={() => setCurrentTab('guide')}
             className="text-[10px] font-bold bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md hover:bg-slate-700 transition border border-slate-700"
@@ -662,6 +736,162 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* PWA Floating Bottom-Right Banner */}
+      {showInstallBanner && (
+        <div className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto md:max-w-sm bg-white border border-slate-200 rounded-2xl shadow-2xl p-5 z-50 animate-fade-in-up flex flex-col gap-4">
+          <div className="flex gap-3 items-start">
+            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl flex-shrink-0">
+              <Smartphone className="w-6 h-6" />
+            </div>
+            <div className="flex-grow space-y-1">
+              <h4 className="font-extrabold text-slate-800 text-sm flex items-center justify-between">
+                <span>Instal Londria Hub</span>
+                <button 
+                  onClick={handleDismissBanner}
+                  className="text-slate-400 hover:text-slate-600 transition"
+                  title="Tutup"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Pasang aplikasi Londria Hub di HP Anda untuk akses cepat, hemat kuota, dan pelacakan order laundry rill yang responsif.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleInstallClick}
+              className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Instal Aplikasi
+            </button>
+            <button
+              onClick={handleDismissBanner}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition"
+            >
+              Nanti Saja
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PWA Step-By-Step Installation Guide Modal */}
+      {showHowToInstallModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-100 shadow-2xl p-6 space-y-6 animate-scale-up max-h-[90vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-start">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-50 text-blue-600 p-2.5 rounded-2xl">
+                  <Smartphone className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-800 text-lg leading-tight">Instalasi Londria Hub</h3>
+                  <p className="text-xs text-slate-400">Jadikan aplikasi native di smartphone Android atau iOS Anda</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowHowToInstallModal(false)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-500 p-1.5 rounded-xl transition"
+                title="Tutup"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              
+              {/* If browser supports standard direct installer prompt */}
+              {deferredPrompt ? (
+                <div className="bg-emerald-50 text-emerald-800 p-4 border border-emerald-100 rounded-2xl text-xs space-y-3 leading-relaxed">
+                  <p className="font-extrabold text-emerald-950 flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4 text-emerald-600" /> Perangkat Anda Mendukung Instalasi Instan!
+                  </p>
+                  <p>Browser Anda telah mendeteksi manifest Progressive Web App Londria Hub yang valid. Anda dapat menginstalnya secara instan dengan mengklik tombol di bawah.</p>
+                  <button
+                    onClick={() => {
+                      setShowHowToInstallModal(false);
+                      handleInstallClick();
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 rounded-xl transition text-xs flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" /> Mulai Instalasi Langsung
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-blue-50/50 text-blue-805 p-4 border border-blue-100 rounded-2xl text-xs space-y-2 leading-relaxed">
+                  <p className="font-extrabold text-blue-900 flex items-center gap-1">
+                    <Info className="w-4 h-4 text-blue-600" /> Cara Mudah Instalasi Manual
+                  </p>
+                  <p>Jika tombol instalasi otomatis tidak muncul, Anda dapat dengan mudah menginstal aplikasi web modern ini secara manual hanya dalam beberapa langkah cepat.</p>
+                </div>
+              )}
+
+              {/* Step instructions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Android / Chrome */}
+                <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 space-y-3">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full"></span> Android (Chrome)
+                  </h4>
+                  <ul className="text-[11px] text-slate-550 space-y-2 list-decimal list-inside leading-relaxed">
+                    <li>Tekan tombol menu titik tiga <span className="font-bold text-slate-700">&#8942;</span> di pojok kanan atas browser Chrome.</li>
+                    <li>Pilih menu <span className="font-bold text-slate-800">"Instal aplikasi"</span> atau <span className="font-bold text-slate-800">"Tambahkan ke Layar utama"</span>.</li>
+                    <li>Konfirmasi instalasi, dan ikon Londria Hub akan langsung terpasang di HP Anda!</li>
+                  </ul>
+                </div>
+
+                {/* iOS / Safari */}
+                <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 space-y-3">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span> iPhone / iOS (Safari)
+                  </h4>
+                  <ul className="text-[11px] text-slate-550 space-y-2 list-decimal list-inside leading-relaxed">
+                    <li>Buka aplikasi Londria Hub menggunakan web browser bawaan <span className="font-bold text-slate-700">Safari</span>.</li>
+                    <li>Tekan tombol <span className="font-bold text-slate-800">Bagikan (Share)</span> di bar bawah (ikon kotak dengan panah atas).</li>
+                    <li>Pilih menu <span className="font-bold text-slate-800">"Tambahkan ke Layar Utama"</span> (Add to Home Screen).</li>
+                  </ul>
+                </div>
+
+              </div>
+
+              {/* PWA advantages */}
+              <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl space-y-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Keunggulan Aplikasi PWA Londria Hub:</p>
+                <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-slate-600">
+                  <div className="bg-white p-2 rounded-xl border border-slate-150">
+                    <p className="font-bold text-blue-650">Sangat Ringan</p>
+                    <p className="text-slate-400 leading-tight mt-0.5">&lt; 1 MB Storage</p>
+                  </div>
+                  <div className="bg-white p-2 rounded-xl border border-slate-150">
+                    <p className="font-bold text-blue-650">Instan Akses</p>
+                    <p className="text-slate-400 leading-tight mt-0.5">Buka dari Homescreen</p>
+                  </div>
+                  <div className="bg-white p-2 rounded-xl border border-slate-150">
+                    <p className="font-bold text-blue-650">Tanpa Playstore</p>
+                    <p className="text-slate-400 leading-tight mt-0.5">Langsung pasang</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowHowToInstallModal(false)}
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-sm py-3 rounded-xl transition"
+              >
+                Selesai & Mengerti
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

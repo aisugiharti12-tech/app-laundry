@@ -406,6 +406,40 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
       .reduce((sum, o) => sum + o.weight, 0);
   }, [filteredReportOrders]);
 
+  const last7DaysStats = React.useMemo(() => {
+    const daysName = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const result = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dayName = daysName[d.getDay()];
+      
+      // Filter orders on this day (comparing date part in local timezone)
+      const dateStr = d.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+      
+      const weightSum = orders
+        .filter(o => {
+          if (!o.createdAt) return false;
+          const oDate = new Date(o.createdAt).toLocaleDateString('en-CA');
+          return oDate === dateStr && o.unit === 'kg';
+        })
+        .reduce((sum, o) => sum + (o.weight || 0), 0);
+        
+      result.push({
+        d: dayName,
+        kg: parseFloat(weightSum.toFixed(1))
+      });
+    }
+    
+    return result;
+  }, [orders]);
+
+  const maxKgInLast7Days = React.useMemo(() => {
+    const max = Math.max(...last7DaysStats.map(item => item.kg), 0);
+    return max > 0 ? max : 10;
+  }, [last7DaysStats]);
+
   // Excel (.xlsx) file generator trigger with supporting transaction and expense worksheets
   const handleExportToExcel = () => {
     if (filteredReportOrders.length === 0 && filteredReportExpenses.length === 0) {
@@ -801,20 +835,12 @@ export default function OwnerDashboard({ currentLaundryId }: OwnerDashboardProps
             </h3>
             
             <div className="h-56 w-full flex items-end justify-between gap-2 pt-6 pb-2 border-b border-indigo-50/50">
-              {[
-                { d: 'Senin', kg: 14 },
-                { d: 'Selasa', kg: 24 },
-                { d: 'Rabu', kg: 19 },
-                { d: 'Kamis', kg: 35 },
-                { d: 'Jumat', kg: 42 },
-                { d: 'Sabtu', kg: 55 },
-                { d: 'Minggu', kg: 48 }
-              ].map((item, i) => (
+              {last7DaysStats.map((item, i) => (
                 <div key={i} className="flex-1 flex flex-col items-center h-full justify-end">
                   <span className="text-[10px] font-mono text-blue-600 font-bold mb-1">{item.kg}kg</span>
                   <div 
-                    className="w-full max-w-[40px] bg-gradient-to-t from-blue-500/80 to-blue-500 rounded-t-lg transition-all duration-1000 ease-out"
-                    style={{ height: `${(item.kg / 60) * 100}%` }}
+                    className="w-full max-w-[40px] bg-gradient-to-t from-blue-500/80 to-blue-500 rounded-t-lg transition-all duration-300 ease-out"
+                    style={{ height: item.kg > 0 ? `${(item.kg / maxKgInLast7Days) * 85 + 15}%` : '0%' }}
                   />
                   <span className="text-xs text-slate-400 font-medium mt-2">{item.d}</span>
                 </div>

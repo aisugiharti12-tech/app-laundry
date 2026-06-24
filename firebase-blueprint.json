@@ -100,6 +100,22 @@
         "cashierId": { "type": "string" }
       },
       "required": ["paymentId", "orderId", "laundryId", "amount", "paymentMethod", "paymentDate"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Represents a business expense recorded by the laundry owner",
+      "type": "object",
+      "properties": {
+        "expenseId": { "type": "string" },
+        "laundryId": { "type": "string" },
+        "category": { "type": "string", "enum": ["operational", "salary", "equipment", "other"] },
+        "title": { "type": "string" },
+        "amount": { "type": "integer" },
+        "date": { "type": "string", "description": "Date of expense (YYYY-MM-DD)" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["expenseId", "laundryId", "category", "title", "amount", "date", "createdAt"]
     }
   },
   "firestore": {
@@ -126,6 +142,10 @@
     "/laundries/{laundryId}/payments/{paymentId}": {
       "schema": "Payment",
       "description": "Subcollection of payments per laundry"
+    },
+    "/laundries/{laundryId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Subcollection of laundry expenses"
     }
   }
 }

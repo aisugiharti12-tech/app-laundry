@@ -100,6 +100,13 @@ service cloud.firestore {
       match /payments/{paymentId} {
         allow read, write: if true;
       }
+
+      // --- EXPENSES SUB-COLLECTION ---
+      match /expenses/{expenseId} {
+        allow read: if isLaundryOwner(laundryId) || isSuperAdmin();
+        allow create, update: if (isLaundryOwner(laundryId) && request.resource.data.laundryId == getAuthUser().laundryId) || isSuperAdmin();
+        allow delete: if isLaundryOwner(laundryId) || isSuperAdmin();
+      }
     }
   }
 }
